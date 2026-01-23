@@ -29,6 +29,8 @@ from .plotting import (
 
 from .keysight_mso import KeysightInfiniiVisionMSO
 
+from .capture import Capture
+
 __all__ = [
     # Decoders
     'RawDecoder',
@@ -46,6 +48,8 @@ __all__ = [
     'DEFAULT_LABELS',
     # Hardware
     'KeysightInfiniiVisionMSO',
+    # Capture
+    'Capture',
 ]
 
 __version__ = '0.1.0'
