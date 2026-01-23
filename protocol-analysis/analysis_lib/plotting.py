@@ -9,6 +9,8 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from .constants import DEFAULT_LABELS
+
 
 @runtime_checkable
 class AnnotationLike(Protocol):
@@ -47,7 +49,6 @@ class Style:
 
 
 DEFAULT_STYLE = Style()
-DEFAULT_LABELS = ["SI", "SO", "SCK", "KBACK", "READY", "KBRQ"]
 
 plt.rcParams["font.sans-serif"] = ["TeX Gyre Heros", "Helvetica", "Arial", "DejaVu Sans"]
 plt.rcParams["font.family"] = "sans-serif"

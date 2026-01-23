@@ -24,12 +24,13 @@ from .plotting import (
     plot_digital,
     Style,
     DEFAULT_STYLE,
-    DEFAULT_LABELS,
 )
 
 from .keysight_mso import KeysightInfiniiVisionMSO
 
 from .capture import Capture
+
+from .constants import DEFAULT_LABELS
 
 __all__ = [
     # Decoders
