@@ -57,8 +57,11 @@ This project is under active development. The protocol analysis phase is in prog
 This project is part of a student project at the Baden-Württemberg Cooperative State University ([DHBW Mannheim](https://www.dhbw-mannheim.de/)), conducted by [Thomas Henseler](https://www.linkedin.com/in/thomas-henseler-a101172b8/) and supervised by [Prof. Dr.-Ing. Johannes Bauer](https://www.mannheim.dhbw.de/profile/bauer).
 
 ## License
+The firmware, hardware designs, and analysis tools in this project are open source under the **MIT License**.  
+See the [LICENSE](LICENSE) file for details.
+
+**Third-Party Copyrights**  
+Original Brother Service Manuals and documentation referenced in this project remain the copyright of Brother Industries, Ltd. They are not covered by the MIT license of this project.
+
 **Trademark Acknowledgement**  
-Brother, Brother Serial Interface System, IF-60, IF-50, and all related product names, trademarks, and documentation are the property of Brother Industries, Ltd. This project is an independent educational and research endeavor and is not affiliated with, endorsed by, or sponsored by Brother Industries, Ltd. All rights to Brother trademarks, product names, and documentation remain with their respective owners.
-
-
-License to be determined.
+Brother, Brother Serial Interface System, IF-60, IF-50, and all related product names are trademarks of Brother Industries, Ltd. This project is an independent educational endeavor and is not affiliated with Brother Industries, Ltd.
