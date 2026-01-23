@@ -1,0 +1,99 @@
+# --- Project Specific ---
+
+.claude
+CLAUDE.md
+
+/models
+/docs/patents
+/protocol-analysis/oscilloscope-docs
+
+
+
+# --- Python Core ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environments ---
+# It is recommended to name your venv 'venv' or '.venv'
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Distribution / Packaging ---
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Installer Logs ---
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Unit Tests & Coverage ---
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# --- Documentation ---
+docs/_build/
+site/
+
+# --- IDE & Editor Configuration ---
+# JetBrains (PyCharm, IntelliJ)
+.idea/
+# VS Code
+.vscode/
+*.code-workspace
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# --- OS Generated Files ---
+.DS_Store
+.DS_Store?
+._*
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- Environment Variables & Secrets ---
+# IMPORTANT: Never commit your .env file containing API keys/secrets!
+.env
+.env.local
+.env.*.local
+
+# --- Databases (SQLite) ---
+*.sqlite3
+*.db
