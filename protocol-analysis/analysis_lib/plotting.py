@@ -256,7 +256,6 @@ class DigitalPlot:
         if len(edges) == 0:
             return
 
-        # Restrict to bottom 3 channels in the ordered list
         try:
             y_bottom = y_positions[channel_order[0]]
             if len(channel_order) >= 3:
@@ -291,7 +290,7 @@ class DigitalPlot:
         if ann.row == "bits":
             y_pos = y_base - 0.05
             ax.text(
-                t_start + (t_end - t_start) * 0.1,
+                t_start,
                 y_pos,
                 ann.text,
                 fontsize=s.font_annotation,
@@ -300,16 +299,13 @@ class DigitalPlot:
                 color="black"
             )
         else:
-            # BYTE LABELS (Decoded text)
             t_center = t_start + (t_end - t_start) * 0.5
-            # Moved down further (-0.35)
             y_pos = y_base - 0.35
 
-            # Styling: Larger font, White Box with Black Edge
             ax.text(
                 t_center, y_pos,
                 ann.text,
-                fontsize=s.font_annotation + 2, # Increase font size
+                fontsize=s.font_annotation + 2,
                 ha="center",
                 va="top",
                 color="black",
@@ -327,7 +323,33 @@ def plot_digital(
     figsize: tuple[float, float] = (12, 6),
     title: str = "Digital Capture",
     show: bool = True,
+    debounce_us: float = 2.0
 ) -> tuple[plt.Figure, plt.Axes]:
+    if debounce_us > 0:
+        # Calculate minimum samples required for a valid pulse
+        sample_rate = 1.0 / (time_data[1] - time_data[0])
+        min_samples = int(debounce_us * 1e-6 * sample_rate)
+
+        filtered_data = {}
+        for ch, signal in channel_data.items():
+            sig = signal.copy() # Work on a copy
+
+            # Find all signal transitions (edges)
+            edges = np.where(np.diff(sig) != 0)[0] + 1
+
+            # Iterate through edges and suppress short pulses
+            for i in range(len(edges) - 1):
+                width = edges[i+1] - edges[i]
+                if width < min_samples:
+                    # Glitch detected: Overwrite this segment with the previous stable value
+                    # (effectively flattening the pulse)
+                    sig[edges[i]:edges[i+1]] = sig[edges[i]-1]
+
+            filtered_data[ch] = sig
+
+        # Use the filtered data for plotting
+        channel_data = filtered_data
+
     plot = DigitalPlot(time_data, channel_data, labels)
     if annotations:
         plot.add_annotations(annotations)
@@ -350,9 +372,11 @@ def plot_digital_normalized(
     figsize: tuple[float, float] = (12, 6),
     title: str = "Digital Capture (Normalized Edges)",
     show: bool = True,
+    debounce_us: float = 2.0,
 ) -> tuple[plt.Figure, plt.Axes]:
     """
     Plots digital signals with a normalized X-axis.
+    Applies signal stability check (debouncing).
     """
     if channels is None:
         channels = list(range(min(6, len(channel_data))))
@@ -362,15 +386,26 @@ def plot_digital_normalized(
 
     valid_norm_channels = [ch for ch in normalization_source_channels if ch in channel_data]
 
-    # 1. Identify transitions
+    # Calculate Debounce Samples
+    sample_interval = time_data[1] - time_data[0]
+    sample_rate = 1 / sample_interval
+    debounce_samples = max(1, int(debounce_us * 1e-6 * sample_rate))
+
+    # 1. Identify Valid Transitions
     transition_indices = set()
     transition_indices.add(0)
     transition_indices.add(len(time_data) - 1)
 
     for ch in valid_norm_channels:
         data = channel_data[ch]
-        ch_transitions = np.where(np.diff(data) != 0)[0] + 1
-        transition_indices.update(ch_transitions)
+        raw_transitions = np.where(np.diff(data) != 0)[0] + 1
+
+        for t in raw_transitions:
+            if t + debounce_samples >= len(data):
+                continue
+            new_level = data[t]
+            if np.all(data[t : t + debounce_samples] == new_level):
+                transition_indices.add(t)
 
     warp_indices = np.sort(list(transition_indices))
     warp_times = time_data[warp_indices]
@@ -381,10 +416,11 @@ def plot_digital_normalized(
     for ch, data in channel_data.items():
         normalized_channels[ch] = data[warp_indices]
 
-    # 3. Warp Annotations
+    # 3. Warp Annotations (REVERTED TO INTERP)
     warped_annotations = []
     if annotations:
         for ann in annotations:
+            # Linear interp maps absolute timestamps to new normalized axis
             new_start = np.interp(ann.start, warp_times, normalized_time)
             new_end = np.interp(ann.end, warp_times, normalized_time)
 
@@ -421,7 +457,6 @@ def plot_digital_normalized(
         idx = int(round(x))
         if 0 <= idx < len(warp_times):
             t_us = warp_times[idx] * 1e6
-            # Remove .0 if present
             s = f"{t_us:.1f}"
             if s.endswith(".0"):
                 return s[:-2]
@@ -430,7 +465,6 @@ def plot_digital_normalized(
 
     ax.xaxis.set_major_formatter(FuncFormatter(format_time_label))
 
-    # Middle ground font size (75%)
     tick_font_size = DEFAULT_STYLE.font_axis * 0.75
     ax.tick_params(axis='x', which='major', labelsize=tick_font_size)
 
