@@ -130,7 +130,7 @@ class Capture:
 
     def save(self, directory: Path = None) -> Path:
         if directory is None:
-            directory = Path(__file__).parent.parent / "signal-captures"
+            directory = Path(__file__).parent.parent / "signal_captures"
 
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
