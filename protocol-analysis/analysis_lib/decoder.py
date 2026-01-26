@@ -8,6 +8,40 @@ import numpy as np
 
 
 # =============================================================================
+# ASCII Lookup Table
+# =============================================================================
+
+ASCII_TABLE = {
+    # Control Codes (0-31)
+    0: 'NUL', 1: 'SOH', 2: 'STX', 3: 'ETX', 4: 'EOT', 5: 'ENQ', 6: 'ACK', 7: 'BEL',
+    8: 'BS',  9: 'HT',  10: 'LF', 11: 'VT', 12: 'FF',  13: 'CR', 14: 'SO', 15: 'SI',
+    16: 'DLE', 17: 'DC1', 18: 'DC2', 19: 'DC3', 20: 'DC4', 21: 'NAK', 22: 'SYN', 23: 'ETB',
+    24: 'CAN', 25: 'EM',  26: 'SUB', 27: 'ESC', 28: 'FS',  29: 'GS',  30: 'RS',  31: 'US',
+    # Printable Characters (32-126)
+    32: 'Space', 33: '!',   34: '"',   35: '#',   36: '$',   37: '%',   38: '&',   39: "'",
+    40: '(',     41: ')',   42: '*',   43: '+',   44: ',',   45: '-',   46: '.',   47: '/',
+    48: '0',     49: '1',   50: '2',   51: '3',   52: '4',   53: '5',   54: '6',   55: '7',
+    56: '8',     57: '9',   58: ':',   59: ';',   60: '<',   61: '=',   62: '>',   63: '?',
+    64: '@',     65: 'A',   66: 'B',   67: 'C',   68: 'D',   69: 'E',   70: 'F',   71: 'G',
+    72: 'H',     73: 'I',   74: 'J',   75: 'K',   76: 'L',   77: 'M',   78: 'N',   79: 'O',
+    80: 'P',     81: 'Q',   82: 'R',   83: 'S',   84: 'T',   85: 'U',   86: 'V',   87: 'W',
+    88: 'X',     89: 'Y',   90: 'Z',   91: '[',   92: '\\',  93: ']',   94: '^',   95: '_',
+    96: '`',     97: 'a',   98: 'b',   99: 'c',   100: 'd',  101: 'e',  102: 'f',  103: 'g',
+    104: 'h',    105: 'i',  106: 'j',  107: 'k',  108: 'l',  109: 'm',  110: 'n',  111: 'o',
+    112: 'p',    113: 'q',  114: 'r',  115: 's',  116: 't',  117: 'u',  118: 'v',  119: 'w',
+    120: 'x',    121: 'y',  122: 'z',  123: '{',  124: '|',  125: '}',  126: '~',
+    # Delete (127)
+    127: 'DEL'
+}
+
+
+def byte_to_ascii_label(value: int) -> str:
+    """Convert byte value to human-readable ASCII label."""
+    if isinstance(value, bytes):
+        value = value[0]
+    return ASCII_TABLE.get(value, f'{value:02X}h')
+
+# =============================================================================
 # Annotation
 # =============================================================================
 
@@ -45,6 +79,9 @@ class RawFrame:
 
     def __len__(self) -> int:
         return len(self.bits)
+
+    def __str__(self) -> str:
+        return "0b" + "".join(str(bit) for bit in self.bits)
 
     def to_annotations(self, row: str = "bits") -> list[Annotation]:
         """Convert frame to bit-level annotations."""
@@ -134,6 +171,9 @@ class RawDecodeResult:
     def __getitem__(self, index):
         return self.frames[index]
 
+    def __str__(self) -> str:
+        return ", ".join(str(frame) for frame in self.frames)
+
     def to_annotations(self, row: str = "bits") -> list[Annotation]:
         """Get all bit-level annotations for all frames."""
         annotations = []
@@ -158,6 +198,9 @@ class BrotherDecodeResult:
     def __getitem__(self, index):
         return self.bytes[index]
 
+    def __str__(self) -> str:
+        return self.as_ascii()
+
     def to_annotations(self, include_bits: bool = False,
                        bits_row: str = "bits",
                        bytes_row: str = "bytes") -> list[Annotation]:
@@ -175,45 +218,8 @@ class BrotherDecodeResult:
         return " ".join(f"{b.value:02X}" for b in self.bytes)
 
     def as_ascii(self) -> str:
-        return "".join(
-            chr(b.value) if 32 <= b.value < 127 else "."
-            for b in self.bytes
-        )
+        return ",".join( byte_to_ascii_label(b.value) for b in self.bytes)
 
-
-# =============================================================================
-# ASCII Lookup Table
-# =============================================================================
-
-ASCII_TABLE = {
-    # Control Codes (0-31)
-    0: 'NUL', 1: 'SOH', 2: 'STX', 3: 'ETX', 4: 'EOT', 5: 'ENQ', 6: 'ACK', 7: 'BEL',
-    8: 'BS',  9: 'HT',  10: 'LF', 11: 'VT', 12: 'FF',  13: 'CR', 14: 'SO', 15: 'SI',
-    16: 'DLE', 17: 'DC1', 18: 'DC2', 19: 'DC3', 20: 'DC4', 21: 'NAK', 22: 'SYN', 23: 'ETB',
-    24: 'CAN', 25: 'EM',  26: 'SUB', 27: 'ESC', 28: 'FS',  29: 'GS',  30: 'RS',  31: 'US',
-    # Printable Characters (32-126)
-    32: 'Space', 33: '!',   34: '"',   35: '#',   36: '$',   37: '%',   38: '&',   39: "'",
-    40: '(',     41: ')',   42: '*',   43: '+',   44: ',',   45: '-',   46: '.',   47: '/',
-    48: '0',     49: '1',   50: '2',   51: '3',   52: '4',   53: '5',   54: '6',   55: '7',
-    56: '8',     57: '9',   58: ':',   59: ';',   60: '<',   61: '=',   62: '>',   63: '?',
-    64: '@',     65: 'A',   66: 'B',   67: 'C',   68: 'D',   69: 'E',   70: 'F',   71: 'G',
-    72: 'H',     73: 'I',   74: 'J',   75: 'K',   76: 'L',   77: 'M',   78: 'N',   79: 'O',
-    80: 'P',     81: 'Q',   82: 'R',   83: 'S',   84: 'T',   85: 'U',   86: 'V',   87: 'W',
-    88: 'X',     89: 'Y',   90: 'Z',   91: '[',   92: '\\',  93: ']',   94: '^',   95: '_',
-    96: '`',     97: 'a',   98: 'b',   99: 'c',   100: 'd',  101: 'e',  102: 'f',  103: 'g',
-    104: 'h',    105: 'i',  106: 'j',  107: 'k',  108: 'l',  109: 'm',  110: 'n',  111: 'o',
-    112: 'p',    113: 'q',  114: 'r',  115: 's',  116: 't',  117: 'u',  118: 'v',  119: 'w',
-    120: 'x',    121: 'y',  122: 'z',  123: '{',  124: '|',  125: '}',  126: '~',
-    # Delete (127)
-    127: 'DEL'
-}
-
-
-def byte_to_ascii_label(value: int) -> str:
-    """Convert byte value to human-readable ASCII label."""
-    if isinstance(value, bytes):
-        value = value[0]
-    return ASCII_TABLE.get(value, f'{value:02X}h')
 
 
 # =============================================================================
