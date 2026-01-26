@@ -45,7 +45,7 @@ class Capture:
 
     # Configuration
     keyboard_setting: int = 0
-    interface_dip_switches: int = 0
+    interface_dip_switches: int = 0b00111100000000
 
     channel_labels: Dict[int, str] = field(default_factory=dict)
 
