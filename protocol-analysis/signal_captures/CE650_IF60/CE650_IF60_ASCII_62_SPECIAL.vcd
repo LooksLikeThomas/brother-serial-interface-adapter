@@ -1,0 +1,183 @@
+$comment {"typewriter": "CE650", "interface": "IF60", "name": "ASCII_62_SPECIAL", "info": "Transmission from IF60 to CE650, after sending Ascii letter \">\" to IF60 from PC. More then One Byte is send", "labels": {"0": "SI", "1": "SO", "2": "SCK", "3": "KBACK", "4": "READY", "5": "KBRQ"}} $end
+$date 2026-01-26 19:22:03.192643 $end
+$timescale 1 ns $end
+$scope module CE650_IF60 $end
+$var wire 1 % SI $end
+$var wire 1 & SO $end
+$var wire 1 ' SCK $end
+$var wire 1 ( KBACK $end
+$var wire 1 ) READY $end
+$var wire 1 * KBRQ $end
+$var wire 1 + D6 $end
+$var wire 1 , D7 $end
+$upscope $end
+$scope module Metadata $end
+$var string 1 ! typewriter $end
+$var string 1 " interface $end
+$var string 1 # name $end
+$var string 1 $ info $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sCE650 !
+sIF60 "
+sASCII_62_SPECIAL #
+sTransmission\x20from\x20IF60\x20to\x20CE650,\x20after\x20sending\x20Ascii\x20letter\x20">"\x20to\x20IF60\x20from\x20PC.\x20More\x20then\x20One\x20Byte\x20is\x20send $
+1%
+1&
+1'
+1(
+1)
+0*
+0+
+0,
+$end
+#299970
+0)
+#327566
+0'
+#327620
+0(
+#334448
+1'
+#340540
+0'
+#340542
+0%
+#347424
+1'
+#353514
+0'
+#360402
+1'
+#366490
+0'
+#373370
+1'
+#379464
+0'
+#379572
+1%
+#386346
+1'
+#392438
+0'
+#392440
+0%
+#399322
+1'
+#405412
+0'
+#412298
+1'
+#418386
+0'
+#425270
+1'
+#483208
+1(
+#669850
+1)
+#849762
+0)
+#885465
+0'
+#885521
+0(
+#892348
+1'
+#898439
+0'
+#898548
+1%
+#905325
+1'
+#911416
+0'
+#911418
+0%
+#918302
+1'
+#924390
+0'
+#924498
+1%
+#931280
+1'
+#937364
+0'
+#937366
+0%
+#944248
+1'
+#950338
+0'
+#950446
+1%
+#957224
+1'
+#963312
+0'
+#970200
+1'
+#976288
+0'
+#976290
+0%
+#983172
+1'
+#1041642
+1(
+#1219642
+1)
+#1401176
+0)
+#1430394
+0'
+#1430450
+0(
+#1430510
+1%
+#1437280
+1'
+#1443368
+0'
+#1443370
+0%
+#1450252
+1'
+#1456342
+0'
+#1463226
+1'
+#1469316
+0'
+#1476202
+1'
+#1482290
+0'
+#1482400
+1%
+#1489180
+1'
+#1495266
+0'
+#1495268
+0%
+#1502152
+1'
+#1508240
+0'
+#1515124
+1'
+#1521214
+0'
+#1521322
+1%
+#1528102
+1'
+#1586306
+1(
+#1771058
+1)

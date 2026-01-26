@@ -1,0 +1,81 @@
+$comment {"typewriter": "CE650", "interface": "IF60", "name": "ASCII_68", "info": "Transmission from IF60 to AX650, after sending Ascii letter \"D\" to IF60 from PC ", "labels": {"0": "SI", "1": "SO", "2": "SCK", "3": "KBACK", "4": "READY", "5": "KBRQ"}} $end
+$date 2026-01-26 19:20:26.493524 $end
+$timescale 1 ns $end
+$scope module CE650_IF60 $end
+$var wire 1 % SI $end
+$var wire 1 & SO $end
+$var wire 1 ' SCK $end
+$var wire 1 ( KBACK $end
+$var wire 1 ) READY $end
+$var wire 1 * KBRQ $end
+$var wire 1 + D6 $end
+$var wire 1 , D7 $end
+$upscope $end
+$scope module Metadata $end
+$var string 1 ! typewriter $end
+$var string 1 " interface $end
+$var string 1 # name $end
+$var string 1 $ info $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sCE650 !
+sIF60 "
+sASCII_68 #
+sTransmission\x20from\x20IF60\x20to\x20AX650,\x20after\x20sending\x20Ascii\x20letter\x20"D"\x20to\x20IF60\x20from\x20PC\x20 $
+1%
+1&
+1'
+1(
+1)
+0*
+0+
+0,
+$end
+#59999
+0)
+#91200
+0%
+0'
+0(
+#97199
+1'
+#103799
+1%
+#104399
+0'
+#110400
+1'
+#117000
+0%
+0'
+#123600
+1'
+#130200
+0'
+#136200
+1'
+#142800
+0'
+#149400
+1'
+#155399
+1%
+#156000
+0'
+#162600
+1'
+#169200
+0%
+0'
+#175200
+1'
+#181800
+0'
+#188400
+1'
+#245999
+1(
+#429600
+1)

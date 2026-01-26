@@ -1,0 +1,178 @@
+$comment {"typewriter": "CE650", "interface": "IF60", "name": "ASCII_94_SPECIAL", "info": "Transmission from IF60 to CE650, after sending Ascii letter \"^\" to IF60 from PC. More then One Byte is send", "labels": {"0": "SI", "1": "SO", "2": "SCK", "3": "KBACK", "4": "READY", "5": "KBRQ"}} $end
+$date 2026-01-26 19:22:09.583271 $end
+$timescale 1 ns $end
+$scope module CE650_IF60 $end
+$var wire 1 % SI $end
+$var wire 1 & SO $end
+$var wire 1 ' SCK $end
+$var wire 1 ( KBACK $end
+$var wire 1 ) READY $end
+$var wire 1 * KBRQ $end
+$var wire 1 + D6 $end
+$var wire 1 , D7 $end
+$upscope $end
+$scope module Metadata $end
+$var string 1 ! typewriter $end
+$var string 1 " interface $end
+$var string 1 # name $end
+$var string 1 $ info $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sCE650 !
+sIF60 "
+sASCII_94_SPECIAL #
+sTransmission\x20from\x20IF60\x20to\x20CE650,\x20after\x20sending\x20Ascii\x20letter\x20"^"\x20to\x20IF60\x20from\x20PC.\x20More\x20then\x20One\x20Byte\x20is\x20send $
+1%
+1&
+1'
+1(
+1)
+0*
+0+
+0,
+$end
+#299970
+0)
+#337296
+0'
+#337352
+0(
+#344182
+1'
+#350270
+0'
+#350274
+0%
+#357154
+1'
+#363244
+0'
+#370128
+1'
+#376218
+0'
+#383100
+1'
+#389194
+0'
+#389302
+1%
+#396080
+1'
+#402168
+0'
+#402170
+0%
+#409054
+1'
+#415142
+0'
+#422026
+1'
+#428116
+0'
+#435002
+1'
+#493244
+1(
+#668228
+1)
+#849762
+0)
+#882222
+0'
+#882278
+0(
+#889103
+1'
+#895196
+0'
+#895302
+1%
+#902080
+1'
+#908172
+0%
+0'
+#915060
+1'
+#921146
+0'
+#921254
+1%
+#928034
+1'
+#934120
+0'
+#934121
+0%
+#941006
+1'
+#947094
+0'
+#947202
+1%
+#953980
+1'
+#960067
+0'
+#966958
+1'
+#973041
+0'
+#979930
+1'
+#1039156
+1(
+#1218022
+1)
+#1399554
+0)
+#1427148
+0'
+#1427204
+0(
+#1434034
+1'
+#1440124
+0'
+#1440126
+0%
+#1447010
+1'
+#1453098
+0'
+#1459980
+1'
+#1466072
+0'
+#1472950
+1'
+#1479046
+0'
+#1479154
+1%
+#1485928
+1'
+#1492022
+0'
+#1492024
+0%
+#1498904
+1'
+#1504996
+0'
+#1511880
+1'
+#1517970
+0'
+#1518078
+1%
+#1524854
+1'
+#1706526
+1(
+#1891068
+1)
