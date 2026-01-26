@@ -1,0 +1,81 @@
+$comment {"typewriter": "AX20", "interface": "IF60", "name": "ASCII_78", "info": "Transmission from IF60 to AX20, after sending Ascii letter \"N\" to IF60 from PC ", "labels": {"0": "SI", "1": "SO", "2": "SCK", "3": "KBACK", "4": "READY", "5": "KBRQ"}} $end
+$date 2026-01-26 17:54:47.154323 $end
+$timescale 1 ns $end
+$scope module AX20_IF60 $end
+$var wire 1 % SI $end
+$var wire 1 & SO $end
+$var wire 1 ' SCK $end
+$var wire 1 ( KBACK $end
+$var wire 1 ) READY $end
+$var wire 1 * KBRQ $end
+$var wire 1 + D6 $end
+$var wire 1 , D7 $end
+$upscope $end
+$scope module Metadata $end
+$var string 1 ! typewriter $end
+$var string 1 " interface $end
+$var string 1 # name $end
+$var string 1 $ info $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sAX20 !
+sIF60 "
+sASCII_78 #
+sTransmission\x20from\x20IF60\x20to\x20AX20,\x20after\x20sending\x20Ascii\x20letter\x20"N"\x20to\x20IF60\x20from\x20PC\x20 $
+1%
+0&
+1'
+1(
+1)
+0*
+0+
+0,
+$end
+#199999
+0)
+#348000
+0%
+0'
+0(
+#354000
+1'
+#359999
+1%
+#361999
+0'
+#366000
+1'
+#374000
+0%
+0'
+#379999
+1'
+#388000
+0'
+#392000
+1'
+#397999
+1%
+#399999
+0'
+#406000
+1'
+#414000
+0'
+#417999
+1'
+#426000
+0'
+#432000
+1'
+#439999
+0%
+0'
+#444000
+1'
+#856000
+1(
+#1042000
+1)

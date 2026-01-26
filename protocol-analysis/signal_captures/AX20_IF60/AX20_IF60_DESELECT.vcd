@@ -1,0 +1,75 @@
+$comment {"typewriter": "AX20", "interface": "IF60", "name": "DESELECT", "info": "Handshake between IF60 and AX20, after Transmission of DC3(Deactivates SEL Mode) from PC to Interface", "labels": {"0": "SI", "1": "SO", "2": "SCK", "3": "KBACK", "4": "READY", "5": "KBRQ"}} $end
+$date 2026-01-26 18:42:29.754499 $end
+$timescale 1 ns $end
+$scope module AX20_IF60 $end
+$var wire 1 % SI $end
+$var wire 1 & SO $end
+$var wire 1 ' SCK $end
+$var wire 1 ( KBACK $end
+$var wire 1 ) READY $end
+$var wire 1 * KBRQ $end
+$var wire 1 + D6 $end
+$var wire 1 , D7 $end
+$upscope $end
+$scope module Metadata $end
+$var string 1 ! typewriter $end
+$var string 1 " interface $end
+$var string 1 # name $end
+$var string 1 $ info $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sAX20 !
+sIF60 "
+sDESELECT #
+sHandshake\x20between\x20IF60\x20and\x20AX20,\x20after\x20Transmission\x20of\x20DC3(Deactivates\x20SEL\x20Mode)\x20from\x20PC\x20to\x20Interface $
+1%
+0&
+1'
+1(
+1)
+0*
+0+
+0,
+$end
+#99999
+0)
+#138000
+0'
+0(
+#144000
+1'
+#150999
+0'
+#157000
+1'
+#164000
+0'
+#169999
+1'
+#177000
+0'
+#183000
+1'
+#189999
+0'
+#196000
+1'
+#203000
+0%
+0'
+#208999
+1'
+#216000
+0'
+#222000
+1'
+#228999
+0'
+#234999
+1'
+#343000
+1(
+#527999
+1)
