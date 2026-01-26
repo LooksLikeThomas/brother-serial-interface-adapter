@@ -1,55 +1,26 @@
 """
 Serial Protocol Decoder Module
-
-Usage:
-    from decoder import RawDecoder, BrotherSerialDecoder
-    from plotting import plot_digital
-
-    # Decode raw frames
-    raw_decoder = RawDecoder(channel_data, time_data)
-    raw_si, raw_so = raw_decoder.decode(data_ch=[0, 1])
-
-    # Decode Brother protocol
-    decoded_si = BrotherSerialDecoder(raw_si).decode()
-    decoded_so = BrotherSerialDecoder(raw_so).decode()
-
-    # Plot with annotations
-    annotations = decoded_si.to_annotations(include_bits=True) + decoded_so.to_annotations()
-    plot_digital(time_data, channel_data, annotations=annotations)
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, Union
+from dataclasses import dataclass
+from typing import Union
 import numpy as np
 
 
 # =============================================================================
-# Annotation (for plotting)
+# Annotation
 # =============================================================================
 
 @dataclass
 class Annotation:
     """
     A display annotation for plotting.
-
-    Inspired by sigrok's annotation model - provides start/end times
-    and text variants (long to short) for different zoom levels.
     """
     channel: int                       # Channel this annotation belongs to
     start: float                       # Start time (seconds)
     end: float                         # End time (seconds)
-    text: list[str]                    # Text variants, longest first
+    text: str                          # The label to display
     row: str = "default"               # Row/category for grouping
-
-    @property
-    def label(self) -> str:
-        """Shortest text variant."""
-        return self.text[-1] if self.text else ""
-
-    @property
-    def label_long(self) -> str:
-        """Longest text variant."""
-        return self.text[0] if self.text else ""
 
 
 # =============================================================================
@@ -66,12 +37,10 @@ class RawFrame:
 
     @property
     def start_time(self) -> float:
-        """Timestamp of first bit in frame."""
         return self.timestamps[0] if self.timestamps else 0.0
 
     @property
     def end_time(self) -> float:
-        """Timestamp of last bit in frame."""
         return self.timestamps[-1] if self.timestamps else 0.0
 
     def __len__(self) -> int:
@@ -81,7 +50,6 @@ class RawFrame:
         """Convert frame to bit-level annotations."""
         annotations = []
         for i, (bit, ts) in enumerate(zip(self.bits, self.timestamps)):
-            # Estimate end time
             if i + 1 < len(self.timestamps):
                 end = self.timestamps[i + 1]
             elif i > 0:
@@ -90,13 +58,11 @@ class RawFrame:
             else:
                 end = ts
 
-            text = [str(bit)]
-
             annotations.append(Annotation(
                 channel=self.channel,
                 start=ts,
                 end=end,
-                text=text,
+                text=str(bit),  # Simple string
                 row=row
             ))
         return annotations
@@ -112,27 +78,22 @@ class DecodedByte:
 
     @property
     def channel(self) -> int:
-        """Channel this byte belongs to."""
         return self.raw_frame.channel
 
     @property
     def start_time(self) -> float:
-        """Timestamp of frame start."""
         return self.raw_frame.start_time
 
     @property
     def end_time(self) -> float:
-        """Timestamp of frame end."""
         return self.raw_frame.end_time
 
     @property
     def hex_str(self) -> str:
-        """Hex representation of the decoded byte."""
         return f"0x{self.value:02X}"
 
     @property
     def raw_hex_str(self) -> str:
-        """Hex representation of the raw byte."""
         return f"0x{self.raw_value:02X}"
 
     def __repr__(self) -> str:
@@ -142,18 +103,13 @@ class DecodedByte:
         """Convert to a single byte-level annotation."""
         # Format: Raw Hex -> Decoded Value "ASCII"
         # Example: 0x55 -> 0x55 "U"
-        label_full = f"{self.raw_hex_str} -> {self.hex_str} \"{self.ascii_label}\""
-        label_short = f"{self.hex_str} \"{self.ascii_label}\""
+        label = f"{self.raw_hex_str} -> {self.hex_str} \"{self.ascii_label}\""
 
         return Annotation(
             channel=self.channel,
             start=self.start_time,
             end=self.end_time,
-            text=[
-                label_full,
-                label_short,
-                self.hex_str
-            ],
+            text=label,  # Simple string
             row=row
         )
 
@@ -191,7 +147,7 @@ class BrotherDecodeResult:
     """Result from BrotherSerialDecoder.decode()."""
     channel: int
     bytes: list[DecodedByte]
-    raw: RawDecodeResult               # Reference to underlying raw result
+    raw: RawDecodeResult
 
     def __len__(self) -> int:
         return len(self.bytes)
@@ -205,14 +161,6 @@ class BrotherDecodeResult:
     def to_annotations(self, include_bits: bool = False,
                        bits_row: str = "bits",
                        bytes_row: str = "bytes") -> list[Annotation]:
-        """
-        Get annotations for all decoded bytes.
-
-        Args:
-            include_bits: Also include bit-level annotations
-            bits_row: Row name for bit annotations
-            bytes_row: Row name for byte annotations
-        """
         annotations = []
         if include_bits:
             annotations.extend(self.raw.to_annotations(row=bits_row))
@@ -221,15 +169,12 @@ class BrotherDecodeResult:
         return annotations
 
     def as_bytes(self) -> bytes:
-        """Return decoded values as a bytes object."""
         return bytes(b.value for b in self.bytes)
 
     def as_hex_string(self) -> str:
-        """Return decoded values as hex string."""
         return " ".join(f"{b.value:02X}" for b in self.bytes)
 
     def as_ascii(self) -> str:
-        """Return decoded values as ASCII (printable chars only)."""
         return "".join(
             chr(b.value) if 32 <= b.value < 127 else "."
             for b in self.bytes
@@ -278,21 +223,6 @@ def byte_to_ascii_label(value: int) -> str:
 class RawDecoder:
     """
     Generic decoder for clock-synchronized serial protocols.
-
-    Instantiate once with capture data, then decode() for each data channel.
-
-    Args:
-        channel_data: Dict mapping channel index to numpy array of samples
-        time_data: Numpy array of timestamps
-        clock_ch: Clock channel index (default: 2 = SCK)
-        ready_ch: Ready/enable channel index (default: 4 = READY)
-        clock_edge: "rising" or "falling"
-        debounce_us: Microseconds signal must be stable after edge
-        bits_per_frame: Number of bits per frame (default: 8)
-
-    Usage:
-        raw_decoder = RawDecoder(channel_data, time_data)
-        raw_si, raw_so = raw_decoder.decode(data_ch=[0, 1])
     """
 
     # Default channel assignments for Brother protocol
@@ -322,10 +252,7 @@ class RawDecoder:
         self.sample_rate = 1 / sample_interval
         self.debounce_samples = max(1, int(debounce_us * 1e-6 * self.sample_rate))
 
-        if self.sample_rate < 200_000:
-            print(f"[WARNING] Sample rate {self.sample_rate/1000:.1f} kHz may be too low")
-
-        # Pre-calculate valid clock edges (shared across all data channels)
+        # Pre-calculate valid clock edges
         self._valid_edges = self._find_valid_edges()
 
     def _find_valid_edges(self) -> list[int]:
@@ -333,7 +260,6 @@ class RawDecoder:
         clock = self.channel_data[self.clock_ch]
         ready = self.channel_data[self.ready_ch]
 
-        # Find clock edges
         if self.clock_edge == "rising":
             raw_edges = np.where((clock[:-1] == 0) & (clock[1:] == 1))[0]
             expected_level = 1
@@ -341,14 +267,16 @@ class RawDecoder:
             raw_edges = np.where((clock[:-1] == 1) & (clock[1:] == 0))[0]
             expected_level = 0
 
-        # Filter: debounce + ready gating
         valid_edges = []
         for edge in raw_edges:
+            # Check bounds for debounce
             if edge + 1 + self.debounce_samples >= len(clock):
                 continue
+            # Check stable level
             if not np.all(clock[edge + 1 : edge + 1 + self.debounce_samples] == expected_level):
                 continue
-            if ready[edge] != 0:  # Ready is active low
+            # Check READY (Active Low)
+            if ready[edge] != 0:
                 continue
             valid_edges.append(edge)
 
@@ -358,31 +286,16 @@ class RawDecoder:
         self,
         data_ch: Union[int, list[int]] = 0
     ) -> Union[RawDecodeResult, tuple[RawDecodeResult, ...]]:
-        """
-        Decode raw frames from one or more data channels.
-
-        Args:
-            data_ch: Single channel index or list of channel indices
-                     (default: 0 = SI)
-
-        Returns:
-            Single RawDecodeResult if data_ch is int,
-            Tuple of RawDecodeResult if data_ch is list
-        """
         if isinstance(data_ch, int):
             return self._decode_channel(data_ch)
         else:
             return tuple(self._decode_channel(ch) for ch in data_ch)
 
     def _decode_channel(self, data_ch: int) -> RawDecodeResult:
-        """Decode a single data channel."""
         data = self.channel_data[data_ch]
-
-        # Sample data at valid edges
         raw_bits = [int(data[e]) for e in self._valid_edges]
         raw_timestamps = [float(self.time_data[e]) for e in self._valid_edges]
 
-        # Group into frames
         frames = []
         num_complete = len(raw_bits) // self.bits_per_frame
 
@@ -412,16 +325,6 @@ class RawDecoder:
 class BrotherSerialDecoder:
     """
     Decoder for the Brother serial interface protocol.
-
-    Takes a RawDecodeResult and decodes it using Brother protocol logic:
-    - 8-bit frames: 1 Start Bit + 7 Data Bits
-    - Conditional inversion: If Start Bit == 1, data bits are inverted
-    - MSB-first data encoding
-
-    Usage:
-        raw_decoder = RawDecoder(channel_data, time_data)
-        raw_si = raw_decoder.decode(data_ch=0)
-        decoded_si = BrotherSerialDecoder(raw_si).decode()
     """
 
     BITS_PER_FRAME = 8
@@ -431,7 +334,6 @@ class BrotherSerialDecoder:
         self.raw_result = raw_result
 
     def decode(self) -> BrotherDecodeResult:
-        """Decode raw frames to bytes."""
         decoded_bytes = []
         for frame in self.raw_result.frames:
             decoded_bytes.append(self._decode_frame(frame))
@@ -443,7 +345,6 @@ class BrotherSerialDecoder:
         )
 
     def _decode_frame(self, frame: RawFrame) -> DecodedByte:
-        """Decode a single frame."""
         if len(frame.bits) != self.BITS_PER_FRAME:
             raise ValueError(f"Expected {self.BITS_PER_FRAME} bits, got {len(frame.bits)}")
 
