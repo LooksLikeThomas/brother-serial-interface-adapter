@@ -368,10 +368,10 @@ class BrotherSerialDecoder:
         for i, bit in enumerate(data_bits):
             value |= bit << (self.DATA_BITS - 1 - i)
 
-        # Calc raw value (what was actually on the wire, excluding start bit)
+        # Calc raw value (what was actually on the wire, including start bit)
         raw_value = 0
-        for i, bit in enumerate(raw_data_bits):
-            raw_value |= bit << (self.DATA_BITS - 1 - i)
+        for i, bit in enumerate(frame.bits):
+            raw_value |= bit << (self.BITS_PER_FRAME - 1 - i)
 
         return DecodedByte(
             value=value,
