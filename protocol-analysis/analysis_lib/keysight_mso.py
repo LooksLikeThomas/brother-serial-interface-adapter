@@ -10,6 +10,12 @@ Usage:
         scope.setup_digital_channels(channels=range(8), threshold=2.5)
         # For Deep Memory (RAW) capture:
         time_d, packed, chans, info = scope.acquire_pod_high_resolution(pod=1)
+
+        # For Segmented Memory capture:
+        scope.setup_segmented_capture(num_segments=3)
+        scope.arm_trigger()
+        # ... send data that triggers scope ...
+        segments = scope.wait_and_read_all_segments(pod=1, timeout=5.0)
 """
 
 import pyvisa
@@ -74,8 +80,11 @@ class ScpiErrorCheckedResource:
             code = error.split(",")[0]
             if code != "+0" and code != "0":
                 raise ScpiCommandError(command, error.strip())
+        except ScpiCommandError:
+            # Re-raise our own error
+            raise
         except Exception:
-            # If the error check itself fails, we don't want to mask the original operation
+            # If the error check itself fails (e.g., timeout), don't mask the original operation
             pass
 
     def get_all_errors(self):
@@ -178,6 +187,9 @@ class KeysightInfiniiVisionMSO:
     # =========================================================================
 
     def setup_digital_channels(self, channels=range(8), threshold=1.4, time_scale=1e-3):
+        # Ensure we're in normal mode (not segmented) for standard capture
+        self.scope.write(":ACQuire:MODE RTIMe")
+
         self.scope.write(":DISPlay:LABel ON")
 
         # Determine pods
@@ -239,12 +251,12 @@ class KeysightInfiniiVisionMSO:
         self.scope.write(f":TIMebase:POSition {delay}")
 
     # =========================================================================
-    # Data Acquisition
+    # Data Acquisition - Standard
     # =========================================================================
 
     def read_current_pod_data(self, pod=1, points=None, mode="NORMal"):
         """Read currently displayed data."""
-        self.scope.write(":STOP") # Stop required for consistent read
+        self.scope.write(":STOP")  # Stop required for consistent read
         self.scope.write(":WAVeform:FORMat BYTE")
         self.scope.write(f":WAVeform:SOURce POD{pod}")
         self.scope.write(f":WAVeform:POINts:MODE {mode}")
@@ -336,7 +348,7 @@ class KeysightInfiniiVisionMSO:
         Full Sequence: Setup -> Arm -> Wait -> Fetch Deep Memory
         """
         # Setup for deep acquisition
-        self.scope.write(":DISPlay:VECTors OFF") # Important for RAW
+        self.scope.write(":DISPlay:VECTors OFF")  # Important for RAW
         self.scope.write(":ACQuire:MODE RTIMe")
         self.scope.write(":TIMebase:MODE MAIN")
         self.scope.write(":ACQuire:TYPE NORMal")
@@ -356,3 +368,295 @@ class KeysightInfiniiVisionMSO:
             return self.read_pod_data_high_resolution(pod=pod, points=points)
         finally:
             self.scope.timeout = old_timeout
+
+    # =========================================================================
+    # Data Acquisition - Software Segmented (Long Capture + Split)
+    # =========================================================================
+
+    def segment_long_capture(self, time_data, packed_data, channel_data,
+                              idle_threshold=1e-3, channels=None):
+        """
+        Segment a long capture into multiple segments based on activity.
+
+        Finds idle periods (no edges on any monitored channel) longer than
+        idle_threshold and splits the capture at those points.
+
+        Args:
+            time_data: Time array from capture
+            packed_data: Packed data array from capture
+            channel_data: Dict of channel arrays from capture
+            idle_threshold: Minimum idle time (seconds) to split on (default 1ms)
+            channels: List of channels to monitor for activity (default: all in channel_data)
+
+        Returns:
+            list: List of (time_data, packed_data, channel_data, timetag) tuples
+                  timetag is relative to start of original capture
+        """
+        if channels is None:
+            channels = list(channel_data.keys())
+
+        if len(time_data) == 0:
+            return []
+
+        # Calculate sample interval
+        if len(time_data) < 2:
+            return [(time_data, packed_data, channel_data, 0.0)]
+
+        sample_interval = time_data[1] - time_data[0]
+        idle_samples = int(idle_threshold / sample_interval)
+
+        # Find edges on any monitored channel
+        # Edge = any change in any channel
+        combined_activity = np.zeros(len(time_data), dtype=bool)
+        for ch in channels:
+            if ch in channel_data:
+                ch_data = channel_data[ch]
+                # Mark positions where there's a change
+                edges = np.diff(ch_data.astype(np.int8)) != 0
+                combined_activity[1:] |= edges
+
+        # Find activity indices (where any edge occurs)
+        activity_indices = np.where(combined_activity)[0]
+
+        if len(activity_indices) == 0:
+            # No activity at all
+            print("Warning: No activity detected in capture")
+            return []
+
+        # Find gaps between activity that exceed idle_threshold
+        segments = []
+        segment_start = 0
+
+        for i in range(1, len(activity_indices)):
+            gap = activity_indices[i] - activity_indices[i-1]
+
+            if gap > idle_samples:
+                # End current segment at last activity + small margin
+                segment_end = activity_indices[i-1] + min(idle_samples // 2, 100)
+                segment_end = min(segment_end, len(time_data))
+
+                # Extract segment
+                seg_time, seg_packed, seg_channels = self._extract_segment(
+                    time_data, packed_data, channel_data,
+                    segment_start, segment_end
+                )
+
+                # Timetag relative to original capture start
+                timetag = time_data[segment_start] - time_data[0]
+
+                segments.append((seg_time, seg_packed, seg_channels, timetag))
+
+                # Start new segment at next activity - small margin
+                segment_start = activity_indices[i] - min(idle_samples // 2, 100)
+                segment_start = max(segment_start, 0)
+
+        # Don't forget the last segment
+        segment_end = activity_indices[-1] + min(idle_samples // 2, 100)
+        segment_end = min(segment_end, len(time_data))
+
+        seg_time, seg_packed, seg_channels = self._extract_segment(
+            time_data, packed_data, channel_data,
+            segment_start, segment_end
+        )
+        timetag = time_data[segment_start] - time_data[0]
+        segments.append((seg_time, seg_packed, seg_channels, timetag))
+
+        print(f"Segmented capture into {len(segments)} segments")
+        return segments
+
+    def _extract_segment(self, time_data, packed_data, channel_data, start_idx, end_idx):
+        """Extract a segment from the capture arrays."""
+        seg_time = time_data[start_idx:end_idx].copy()
+        seg_packed = packed_data[start_idx:end_idx].copy()
+        seg_channels = {}
+        for ch, data in channel_data.items():
+            seg_channels[ch] = data[start_idx:end_idx].copy()
+        return seg_time, seg_packed, seg_channels
+
+    def capture_and_segment(self, pod=1, idle_threshold=1e-3, channels=None,
+                            timeout_ms=30000):
+        """
+        Convenience method: Capture with high resolution and automatically segment.
+
+        Args:
+            pod: Pod number (1 or 2)
+            idle_threshold: Minimum idle time (seconds) to split on (default 1ms)
+            channels: List of channels to monitor for activity (default: all)
+            timeout_ms: Capture timeout in milliseconds
+
+        Returns:
+            list: List of (time_data, packed_data, channel_data, timetag) tuples
+        """
+        # Capture
+        time_data, packed_data, channel_data, info = self.acquire_pod_high_resolution(
+            pod=pod, timeout_ms=timeout_ms
+        )
+
+        print(f"Captured {info['points']:,} points, duration {info['duration']*1000:.2f}ms")
+
+        # Segment
+        return self.segment_long_capture(
+            time_data, packed_data, channel_data,
+            idle_threshold=idle_threshold,
+            channels=channels
+        )
+
+    def setup_segmented_capture(self, num_segments=10):
+        """
+        Setup segmented memory acquisition.
+
+        Segmented memory captures multiple trigger events, each into a separate
+        segment. Ideal for capturing bursty signals like protocol handshakes
+        with dead time between them.
+
+        Args:
+            num_segments: Number of segments to capture (2-2000, depends on memory)
+
+        Note:
+            - Points per segment is determined by timebase setting
+            - Use setup_digital_channels(time_scale=...) to set segment window size
+            - Each segment captures 10 divisions worth of data
+        """
+        # Enable segmented mode
+        self.scope.write(":ACQuire:MODE SEGMented")
+        self.scope.write(f":ACQuire:SEGMented:COUNt {num_segments}")
+
+        print(f"Segmented capture configured: {num_segments} segments")
+
+    def get_segmented_config_count(self):
+        """
+        Get the configured (requested) number of segments.
+
+        Returns:
+            int: Number of segments configured via setup_segmented_capture()
+        """
+        return int(self.scope.query(":ACQuire:SEGMented:COUNt?"))
+
+    def get_acquired_segment_count(self):
+        """
+        Get the number of segments actually captured so far.
+
+        Returns:
+            int: Number of segments currently in acquisition memory
+        """
+        return int(self.scope.query(":WAVeform:SEGMented:COUNt?"))
+
+    def get_segment_timetag(self, index):
+        """
+        Get the time tag for a specific segment.
+
+        Args:
+            index: Segment index (1-based)
+
+        Returns:
+            float: Time in seconds relative to first segment trigger
+        """
+        self.scope.write(f":ACQuire:SEGMented:INDex {index}")
+        return float(self.scope.query(":WAVeform:SEGMented:TTAG?"))
+
+    def read_segment_pod_data(self, segment_index, pod=1):
+        """
+        Read pod data from a specific segment.
+
+        Args:
+            segment_index: Segment index (1-based)
+            pod: Pod number (1 or 2)
+
+        Returns:
+            tuple: (time_data, packed_data, channel_data, timetag)
+        """
+        # Select the segment
+        self.scope.write(f":ACQuire:SEGMented:INDex {segment_index}")
+
+        # Get timetag for this segment
+        timetag = float(self.scope.query(":WAVeform:SEGMented:TTAG?"))
+
+        # Configure waveform read
+        self.scope.write(":WAVeform:FORMat BYTE")
+        self.scope.write(f":WAVeform:SOURce POD{pod}")
+
+        # Get preamble
+        preamble = self.scope.query(":WAVeform:PREamble?").split(",")
+        x_increment = float(preamble[4])
+        x_origin = float(preamble[5])
+
+        # Read data (bypass error check for binary transfer)
+        self.scope.write_no_check(":WAVeform:DATA?")
+        raw_data = self.scope.read_raw()
+
+        # Parse IEEE 488.2 block header
+        header_len = 2 + int(chr(raw_data[1]))
+        packed_data = np.frombuffer(raw_data[header_len:-1], dtype=np.uint8)
+
+        # Unpack into individual channels
+        channel_data = {}
+        base_ch = 0 if pod == 1 else 8
+        for bit in range(8):
+            channel_data[base_ch + bit] = (packed_data >> bit) & 1
+
+        # Generate time array
+        time_data = np.arange(len(packed_data)) * x_increment + x_origin
+
+        return time_data, packed_data, channel_data, timetag
+
+    def wait_and_read_all_segments(self, pod=1, timeout=10.0, poll_interval=0.1):
+        """
+        Wait for segmented capture to complete and read all segments.
+
+        This method polls until either:
+        - All configured segments are captured, OR
+        - Timeout is reached
+
+        Then reads whatever segments were captured.
+
+        Args:
+            pod: Pod number (1 or 2)
+            timeout: Maximum time to wait in seconds
+            poll_interval: How often to check segment count in seconds
+
+        Returns:
+            list: List of (time_data, packed_data, channel_data, timetag) tuples
+                  One tuple per captured segment.
+        """
+        target_count = self.get_segmented_config_count()
+        start_time = time.time()
+
+        # Poll until all segments captured or timeout
+        while True:
+            acquired = self.get_acquired_segment_count()
+
+            if acquired >= target_count:
+                print(f"All {acquired} segments captured")
+                break
+
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                print(f"Timeout reached. Captured {acquired}/{target_count} segments")
+                break
+
+            time.sleep(poll_interval)
+
+        # Stop acquisition
+        self.scope.write(":STOP")
+
+        # Get final count
+        num_segments = self.get_acquired_segment_count()
+
+        if num_segments == 0:
+            print("Warning: No segments captured!")
+            # Reset to normal mode before returning
+            self.scope.write(":ACQuire:MODE RTIMe")
+            return []
+
+        # Read all segments
+        segments = []
+        for i in range(1, num_segments + 1):  # 1-based indexing
+            segment_data = self.read_segment_pod_data(i, pod)
+            segments.append(segment_data)
+
+        print(f"Read {len(segments)} segments from memory")
+
+        # Reset to normal mode for subsequent standard captures
+        self.scope.write(":ACQuire:MODE RTIMe")
+
+        return segments
