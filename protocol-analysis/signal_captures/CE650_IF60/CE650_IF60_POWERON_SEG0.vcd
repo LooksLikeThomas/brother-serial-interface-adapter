@@ -1,0 +1,78 @@
+$comment {"typewriter": "CE650", "interface": "IF60", "name": "POWERON_SEG0", "info": "Handshake between IF60 and CE650, after Power is suppliedSegment NR.0", "labels": {"0": "SI", "1": "SO", "2": "SCK", "3": "KBACK", "4": "READY", "5": "KBRQ"}} $end
+$date 2026-01-27 13:05:14.271185 $end
+$timescale 1 ns $end
+$scope module CE650_IF60 $end
+$var wire 1 % SI $end
+$var wire 1 & SO $end
+$var wire 1 ' SCK $end
+$var wire 1 ( KBACK $end
+$var wire 1 ) READY $end
+$var wire 1 * KBRQ $end
+$var wire 1 + D6 $end
+$var wire 1 , D7 $end
+$upscope $end
+$scope module Metadata $end
+$var string 1 ! typewriter $end
+$var string 1 " interface $end
+$var string 1 # name $end
+$var string 1 $ info $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+sCE650 !
+sIF60 "
+sPOWERON_SEG0 #
+sHandshake\x20between\x20IF60\x20and\x20CE650,\x20after\x20Power\x20is\x20suppliedSegment\x20NR.0 $
+0%
+0&
+0'
+0(
+0)
+0*
+0+
+0,
+$end
+#499998750
+1)
+#500000000
+0)
+#500021250
+1%
+1)
+#500022500
+1'
+#500036250
+0%
+0'
+0)
+#500050000
+1%
+1)
+#500051250
+1'
+#500066250
+0%
+#500067500
+0'
+#500073750
+1&
+#500080000
+1%
+#500081250
+1'
+1*
+#500097500
+0%
+#500106250
+0'
+#500108750
+1%
+#500110000
+1'
+#500117500
+1(
+#500137500
+0%
+#500138750
+1%
