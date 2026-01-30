@@ -931,6 +931,17 @@ void pollHandshake() {
                 // Change state to HS_IDLE
                 hsStateEnteredAt = now;
                 hsState = HS_IDLE;
+            }else if (now - hsStateEnteredAt >= 5000000) { 
+                // Timeout: KBACK still LOW after 5s - Assume typewriter is offline
+                // Reset flags before entering HS_TW_OFF (defensive)
+                kbackRising = false;
+                kbrqRising = false;
+                kbrqFalling = false;
+                // Release READY before going to off state
+                setREADYHigh();
+                // Change state to HS_TW_OFF
+                hsStateEnteredAt = now;
+                hsState = HS_TW_OFF;
             }
             break;
         
