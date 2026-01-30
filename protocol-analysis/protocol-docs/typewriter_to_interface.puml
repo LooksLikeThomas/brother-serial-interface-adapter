@@ -150,10 +150,10 @@ Phase is {-}
 KBRQ is low
 
 ' Adjusted start time to 5 units
-Phase@5 <-> @10 : ~150us
+Phase@5 <-> @10 : ~100us
 Phase@10 <-> @15 : ~200us
 Phase@15 <-> @31 : ~100us
-Phase@31 <-> @38 : ~200us
+Phase@31 <-> @38 : ~240us
 Phase@38 <-> @40 : ~10us
 
 ' --- Highlighting ---

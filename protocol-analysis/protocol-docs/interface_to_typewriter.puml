@@ -157,7 +157,7 @@ READY is high
 Phase is {-}
 
 ' --- Time Constraints ---
-Phase@5 <-> @10 : ~40us
+Phase@5 <-> @10 : ~30us
 Phase@10 <-> @26 : ~100us
 Phase@26 <-> @36 : ~ 100-500ms (Processing)
 Phase@36 <-> @40 : ~40us

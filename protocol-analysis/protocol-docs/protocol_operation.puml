@@ -40,11 +40,11 @@ scale 5 as 60 pixels
 ' Define Participants - All converted to robust
 robust "KBRQ (T)" as KBRQ
 robust "READY (I)" as READY
-robust "KBACK (T)" as KBACK 
+robust "KBACK (T)" as KBACK
 robust "SCK (I)" as SCK
 robust "SO (T)" as SO
 robust "SI (I)" as SI
-concise "Protocol Phase" as Phase 
+concise "Protocol Phase" as Phase
 
 ' --- State Definitions ---
 
