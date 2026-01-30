@@ -151,6 +151,67 @@
 
 
 // ==============================================
+// Function prototypes
+// ==============================================
+
+// Pin setup
+void setupPins();
+void setupExternalInterrupts();
+void setupTransferTimer();
+
+// Transfer control
+void startTransfer(uint8_t byteToSend);
+void stopTransfer();
+
+// External interrupt control (inline)
+inline void disableExternalInterrupts();
+inline void enableExternalInterrupts();
+
+// Transfer timer control (inline)
+inline void startTransferTimer();
+inline void stopTransferTimer();
+
+// Pin state helpers (inline)
+inline bool isSCKHigh();
+inline bool isSCKLow();
+inline void setSCKHigh();
+inline void setSCKLow();
+
+inline bool isSIHigh();
+inline bool isSILow();
+inline void setSIHigh();
+inline void setSILow();
+
+inline bool isSOHigh();
+inline bool isSOLow();
+
+inline bool isREADYHigh();
+inline bool isREADYLow();
+inline void setREADYHigh();
+inline void setREADYLow();
+
+inline bool isKBRQHigh();
+inline bool isKBRQLow();
+
+inline bool isKBACKHigh();
+inline bool isKBACKLow();
+
+// Ring buffer functions
+bool siBufferEmpty();
+bool siBufferFull();
+bool siBufferPush(uint8_t byte);
+bool siBufferPop(uint8_t *byte);
+
+bool soBufferEmpty();
+bool soBufferFull();
+bool soBufferPush(uint8_t byte);
+bool soBufferPop(uint8_t *byte);
+
+// State machine
+void pollHandshake();
+
+
+// ==============================================
 // Handshake State Machine
 // ==============================================
 //
@@ -201,6 +262,15 @@ volatile bool kbrqFalling = false;          // Flag: KBRQ just went LOW
 volatile uint32_t kbrqLowSince = 0;         // micros() when KBRQ went LOW (0 if HIGH)
 
 volatile bool kbackRising = false;          // Set by INT1 ISR when KBACK rises
+
+// ----- Atomic helper Function for reading kbrqSince() -----
+
+inline uint32_t readKbrqLowSince() {
+    disableExternalInterrupts();
+    uint32_t val = kbrqLowSince;
+    enableExternalInterrupts();
+    return val;
+}
 
 // ----- Helper functions for enabling/disabling external Interrupts -----
 
@@ -287,16 +357,6 @@ inline void stopTransferTimer() {
 }
 
 
-// ==============================================
-// Function prototypes
-// ==============================================
-void setupPins();
-void setupExternalInterrupts();
-void setupTransferTimer();
-void startTransfer(uint8_t byteToSend);
-void stopTransfer();
-
-
 void setup() {
     // Debug output — remove when porting
     Serial.begin(9600);
@@ -318,12 +378,8 @@ void setup() {
     // Set up external Interrupt for Transmission Handshake
     noInterrupts();
     setupExternalInterrupts();
-    interrupts();
 
-    // Initialize kbrqLowSince if KBRQ is already LOW
-    if (isKBRQLow()) {
-        kbrqLowSince = micros();
-    }
+    interrupts();
 }
 
 
@@ -401,7 +457,6 @@ void setupExternalInterrupts() {
     // ----- Initialize KBRQ state -----
     // If KBRQ is already LOW, start tracking how long it's been LOW
     // Otherwise the ISR will set kbrqLowSince when it falls
-    
     if (isKBRQLow()) {
         kbrqLowSince = micros();
     }
@@ -777,7 +832,7 @@ void pollHandshake() {
 
         case HS_TW_OFF:
             // Wait for KBRQ to be stable LOW for 100ms
-            if (kbrqLowSince != 0 && (now - kbrqLowSince >= 100000)) {
+            if (kbrqLowSince != 0 && (now - readKbrqLowSince() >= 100000)) {
                 // Reset KBRQ FLags before entering HS_IDLE (defensiv)
                 kbrqRising = false;
                 kbrqFalling = false;
