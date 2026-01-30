@@ -120,22 +120,34 @@
 // ==============================================
 
 // Timer1 registers (ATmega328P)
-#define TIMER_CONTROL_A     TCCR1A  // Timer Control Register A
-#define TIMER_CONTROL_B     TCCR1B  // Timer Control Register B
+#define TIMER_CONTROL_A     TCCR1A  // Pin output mode (set to 0, we toggle manually)
+#define TIMER_CONTROL_B     TCCR1B  // Timer mode and prescaler (starts/stops timer)
 #define TIMER_COUNTER       TCNT1   // The actual counter value
 #define TIMER_COMPARE       OCR1A   // Compare match target value
-#define TIMER_INT_MASK      TIMSK1  // Interrupt mask register
+#define TIMER_INT_MASK      TIMSK1  // Interrupt enable register
 
 // Timer1 bits (ATmega328P)
 #define TIMER_CTC_BIT       WGM12   // CTC mode enable bit
-#define TIMER_TOGGLE_BIT    COM1A0  // Toggle output on compare match
-#define TIMER_PRESCALE_1    CS10    // Prescaler = 1 (also starts timer)
+#define TIMER_PRESCALE_1    CS10    // Prescaler = 1, also starts timer
 #define TIMER_INT_ENABLE    OCIE1A  // Compare match interrupt enable
 
-// Timer compare value for ~78kHz
-// Formula: f_signal = 16MHz / (2 × prescaler × (OCR + 1))
-// 78kHz ≈ 16MHz / (2 × 1 × 103) → OCR = 102
-#define TIMER_COMPARE_VALUE 102
+// Timer compare value for ~6.4µs half-period (~78kHz clock)
+//
+// Base formula: t_half = (OCR + 1) / 16MHz
+//               6.4µs = 103 / 16MHz → OCR = 102
+//
+// However, the ISR adds overhead before restarting the timer:
+//   - Interrupt response: ~4 cycles
+//   - Register push: ~20 cycles
+//   - Stop timer, toggle SCK, set SI, restart timer: ~15 cycles
+//   Total: ~39 cycles = ~2.4µs
+//
+// To achieve 6.4µs half-period:
+//   Timer portion = 6.4µs - 2.4µs = 4µs
+//   OCR1A = 4µs / 62.5ns = 64
+//
+// Value tuned based on oscilloscope measurements.
+#define TIMER_COMPARE_VALUE 64
 
 
 // ==============================================
@@ -190,6 +202,15 @@ volatile uint32_t kbrqLowSince = 0;         // micros() when KBRQ went LOW (0 if
 
 volatile bool kbackRising = false;          // Set by INT1 ISR when KBACK rises
 
+// ----- Helper functions for enabling/disabling external Interrupts -----
+
+inline void disableExternalInterrupts() {
+    EXT_INT_MASK &= ~((1 << INT0_ENABLE) | (1 << INT1_ENABLE));
+}
+
+inline void enableExternalInterrupts() {
+    EXT_INT_MASK |= (1 << INT0_ENABLE) | (1 << INT1_ENABLE);
+}
 
 // ==============================================
 // Brother Serial Protocol - Clock and Data Transfer
@@ -248,10 +269,22 @@ volatile uint8_t dataOut = 0;           // Byte we're sending
 volatile uint8_t dataIn = 0;            // Byte we're receiving
 volatile uint8_t bitIndex = 0;          // Current bit position (0-7)
 volatile bool transferComplete = false; // Flag: transfer finished?
+volatile bool clockPhase = true;        // SCK phase: true = HIGH (also idle), false = LOW
 
 // When switching from SI path to SO path, interface sends DEL (0x7F)
 // For consecutive SO transmissions, interface sends 0xFF
 volatile bool lastTransmissionWasSI = true;  // true = Interface (Arduino) sent last
+
+// ----- Transfer timer helper functions -----
+
+inline void startTransferTimer() {
+    TIMER_CONTROL_B |= (1 << TIMER_PRESCALE_1);
+}
+
+inline void stopTransferTimer() {
+    TIMER_CONTROL_B &= ~(1 << TIMER_PRESCALE_1);
+    TIMER_COUNTER = 0;
+}
 
 
 // ==============================================
@@ -259,7 +292,7 @@ volatile bool lastTransmissionWasSI = true;  // true = Interface (Arduino) sent 
 // ==============================================
 void setupPins();
 void setupExternalInterrupts();
-void setupTimer();
+void setupTransferTimer();
 void startTransfer(uint8_t byteToSend);
 void stopTransfer();
 
@@ -275,19 +308,22 @@ void setup() {
     setupPins();
 
     // Set up clock, counter and compare match interrupt
-    setupTimer();
+    setupTransferTimer();
 
     interrupts();
-    
+
     // Let hardware settle after pins configured
     delay(100);
-    
-    noInterrupts();
 
     // Set up external Interrupt for Transmission Handshake
+    noInterrupts();
     setupExternalInterrupts();
-
     interrupts();
+
+    // Initialize kbrqLowSince if KBRQ is already LOW
+    if (isKBRQLow()) {
+        kbrqLowSince = micros();
+    }
 }
 
 
@@ -359,9 +395,16 @@ void setupExternalInterrupts() {
     EXT_INT_CONTROL |= (1 << INT1_MODE_BIT1) | (1 << INT1_MODE_BIT0);
     
     // ----- Enable Both Interrupts -----
+
+    enableExternalInterrupts();
     
-    EXT_INT_MASK |= (1 << INT0_ENABLE) | (1 << INT1_ENABLE);
+    // ----- Initialize KBRQ state -----
+    // If KBRQ is already LOW, start tracking how long it's been LOW
+    // Otherwise the ISR will set kbrqLowSince when it falls
     
+    if (isKBRQLow()) {
+        kbrqLowSince = micros();
+    }
 }
 
 
@@ -369,26 +412,27 @@ void setupExternalInterrupts() {
 // Timer Configuration
 // ==============================================
 //
-// Timer1 is a 16-bit counter that counts up:
+// Timer1 is a 16-bit counter that counts up.
 // In CTC mode, we set a target (OCR1A). When counter hits target:
 //   1. Counter resets to 0
-//   2. Pin toggles
-//   3. Interrupt fires
+//   2. Interrupt fires
+//   3. ISR stops timer, toggles SCK, restarts timer
 //
-// Frequency calculation:
-//   f_signal = 16MHz / (2 × prescaler × (OCR1A + 1))
-//   78kHz = 16MHz / (2 × 1 × 103)
+// This "one-shot" approach prevents extra clock pulses if ISR is delayed.
+//
+// Half-period calculation:
+//   t_half = (OCR1A + 1) / 16MHz
+//   6.4µs = 103 / 16MHz
 //   OCR1A = 102
 //
-void setupTimer() {
-
-    // Connect timer to pin in toggle mode
-    TIMER_CONTROL_A = (1 << TIMER_TOGGLE_BIT);
+void setupTransferTimer() {
+    // Disable pin toggle mode (we toggle SCK manually)
+    TIMER_CONTROL_A = 0;
     
-    // CTC mode, stopped (no prescaler)
+    // CTC mode, stopped (no prescaler yet)
     TIMER_CONTROL_B = (1 << TIMER_CTC_BIT);
     
-    // Compare value for ~78kHz
+    // Compare value for ~6.4µs half-period
     TIMER_COMPARE = TIMER_COMPARE_VALUE;
     
     // Reset counter
@@ -396,7 +440,6 @@ void setupTimer() {
     
     // Enable compare match interrupt
     TIMER_INT_MASK = (1 << TIMER_INT_ENABLE);
-    
 }
 
 
@@ -416,6 +459,14 @@ inline bool isSCKHigh() {
 
 inline bool isSCKLow() {
     return !(SCK_PIN & (1 << SCK_BIT));
+}
+
+inline void setSCKHigh() {
+    SCK_PORT |= (1 << SCK_BIT);
+}
+
+inline void setSCKLow() {
+    SCK_PORT &= ~(1 << SCK_BIT);
 }
 
 // ----- SI (Signal In — we send to typewriter) -----
@@ -546,16 +597,17 @@ bool soBufferPop(uint8_t *byte) {
 //
 // noInterrupts()
 //     │
-//     ↓ Set counter to compare value (102)
+//     ↓ Reset transfer state
+//     ↓ Disable external interrupts
 //     ↓ Start timer
-//     ↓ First tick: counter matches immediately
-//     ↓ SCK toggles HIGH → LOW (falling edge)
-//     ↓ ISR is queued (can't run yet, interrupts disabled)
 //     │
 // interrupts()
 //     │
-//     ↓ Queued ISR fires immediately
-//     ↓ We're at falling edge → Set bit 7 on SI
+//     ↓ Timer counts to TIMER_COMPARE_VALUE
+//     ↓ ISR fires, stops timer
+//     ↓ ISR pulls SCK LOW (falling edge)
+//     ↓ ISR sets bit 7 on SI
+//     ↓ ISR restarts timer
 //
 void startTransfer(uint8_t byteToSend) {
     noInterrupts();
@@ -566,12 +618,8 @@ void startTransfer(uint8_t byteToSend) {
     bitIndex = 0;
     transferComplete = false;
     
-    // Set counter to compare value — triggers immediately
-    TIMER_COUNTER = TIMER_COMPARE_VALUE;
-    
-    // Start timer (prescaler 1)
-    // TIMER_CONTROL_A already set in setupTimer()
-    TIMER_CONTROL_B |= (1 << TIMER_PRESCALE_1);
+    disableExternalInterrupts();
+    startTransferTimer();
     
     interrupts();
 }
@@ -587,12 +635,87 @@ void startTransfer(uint8_t byteToSend) {
 //   - Clock is in correct idle state (HIGH)
 //
 void stopTransfer() {
-    // Stop timer — clear prescaler bit
-    TIMER_CONTROL_B &= ~(1 << TIMER_PRESCALE_1);
-    
     transferComplete = true;
+    setSIHigh(); // Not protocol but easier to read on scope
+
+    // Enable external interrupts again
+    enableExternalInterrupts();
 }
 
+
+// ==============================================
+// Interrupt Service Routine
+// ==============================================
+//
+// Called on every compare match. Timer stops at match,
+// we toggle SCK manually, then restart timer if needed.
+//
+// This "one-shot" approach prevents extra pulses if ISR is delayed.
+//
+// Timeline for one byte transfer:
+//
+// ISR #  | Action
+// -------|------------------------------------------
+//    1   | SCK HIGH→LOW, set bit 7 on SI, restart
+//    2   | SCK LOW→HIGH, read bit 7 from SO, restart
+//    3   | SCK HIGH→LOW, set bit 6 on SI, restart
+//    4   | SCK LOW→HIGH, read bit 6 from SO, restart
+//   ...  | ...
+//   15   | SCK HIGH→LOW, set bit 0 on SI, restart
+//   16   | SCK LOW→HIGH, read bit 0 from SO, DONE
+//
+ISR(TIMER1_COMPA_vect) {
+    // TIMER_COUNTER reached TIMER_COMPARE_VALUE so we stop and reset the TIMER
+    stopTransferTimer();
+    
+    // Check SCK state to determine edge type
+    if (clockPhase) {
+        
+        // ===================
+        // FALLING EDGE
+        // ===================
+
+        // Action:  Pull SCK low and toggle Phase-Flag
+        setSCKLow();
+        clockPhase = false;
+        
+        // Action: Set outgoing bit on SI
+        if (dataOut & (0x80 >> bitIndex)) {
+            setSIHigh();
+        } else {
+            setSILow();
+        }
+        
+        // Start Timer for low phase
+        startTransferTimer();
+
+    }else{
+
+        // ===================
+        // RISING EDGE
+        // ===================
+        // Action:  Pull SCK HIGH and toggle Phase-Flag
+
+        setSCKHigh();
+        clockPhase = true;
+        
+        // Read bit from SO
+        if (isSOHigh()) {
+            dataIn |= (0x80 >> bitIndex);
+        }// If SO is LOW, bit stays 0 (dataIn was initialized to 0)
+        
+        // Move to next bit
+        bitIndex++;
+        
+        if (bitIndex < 8) {
+            // More bits to transfer, restart timer
+            startTransferTimer();
+        } else {
+            // Done! Keep timer stopped
+            stopTransfer();
+        }
+    }
+}
 
 
 // ==============================================
@@ -610,7 +733,6 @@ void stopTransfer() {
 // OR
 // HIGH > 100ms Typewriter OFF or disconnected
 //
-
 ISR(INT0_vect) {
     if (isKBRQHigh()) {
         // KBRQ is HIGH — rising edge
@@ -623,96 +745,15 @@ ISR(INT0_vect) {
     }
 }
 
+
 // ----- INT1: KBACK Rising Edge -----
 //
 // Typewriter finished processing (SI path only)
 //
-
 ISR(INT1_vect) {
     kbackRising = true;
 }
 
-
-// ==============================================
-// Interrupt Service Routine
-// ==============================================
-//
-// Called automatically by hardware on every compare match.
-// That means: every time SCK toggles (both edges).
-//
-// Falling edge (SCK is LOW after toggle):
-//   → Set outgoing bit on SI
-//
-// Rising edge (SCK is HIGH after toggle):
-//   → Read incoming bit from SO
-//   → Move to next bit
-//   → Stop if all 8 bits done
-//
-// Timeline for one byte transfer:
-//
-// ISR #  | SCK after | bitIndex | Action
-// -------|-----------|----------|---------------------------
-//    1   |   LOW     |    0     | Set bit 7 on SI
-//    2   |   HIGH    |    0→1   | Read bit 7 from SO
-//    3   |   LOW     |    1     | Set bit 6 on SI
-//    4   |   HIGH    |    1→2   | Read bit 6 from SO
-//   ...  |   ...     |   ...    | ...
-//   15   |   LOW     |    7     | Set bit 0 on SI
-//   16   |   HIGH    |    7→8   | Read bit 0 from SO, STOP
-//
-ISR(TIMER1_COMPA_vect) {
-    
-    // Check SCK state to determine edge type
-    if (isSCKHigh()) {
-        
-        // ===================
-        // RISING EDGE
-        // SCK is HIGH
-        // ===================
-        // Action: Read incoming bit from SO
-
-        // Last bit? Stop timer FIRST
-        if (bitIndex == 7) {
-            TIMER_CONTROL_B &= ~(1 << TIMER_PRESCALE_1);
-            transferComplete = true;
-        }
-        
-        if (isSOHigh()) {
-            // SO is HIGH — set this bit in dataIn
-            // 0x80 >> 0 = 0b10000000 (bit 7)
-            // 0x80 >> 1 = 0b01000000 (bit 6)
-            // etc.
-            dataIn |= (0x80 >> bitIndex);
-        }// If SO is LOW, bit stays 0 (dataIn was initialized to 0)
-        
-        // Move to next bit
-        bitIndex++;
-        
-        if(bitIndex == 8){
-            // Reset SI HIGH for dormant period after transmission
-            setSIHigh();
-        }
-
-        
-    } else {
-        
-        // ===================
-        // FALLING EDGE
-        // SCK is LOW
-        // ===================
-        // Action: Set outgoing bit on SI
-        
-        // Check if current bit in dataOut is 1 or 0
-        // 0x80 >> 0 = 0b10000000 (bit 7)
-        // 0x80 >> 1 = 0b01000000 (bit 6)
-        // etc.
-        if (dataOut & (0x80 >> bitIndex)) {
-            setSIHigh();
-        } else {
-            setSILow();
-        }
-    }
-}
 
 // ==============================================
 // Transmission Handshake State Machine
