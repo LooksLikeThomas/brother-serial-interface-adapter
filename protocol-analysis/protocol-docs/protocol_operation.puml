@@ -1,0 +1,190 @@
+
+
+@startuml Complete_Bidirectional_Exchange
+hide time-axis
+title Complete Exchange: Interface sends 0xA5 then Typewriter sends 0x3C
+footer Typewriter (T) / Interface (I)
+
+<style>
+timingDiagram {
+  .signal {
+    LineColor black
+  }
+  concise {
+    LineColor black
+    BackgroundColor white
+    FontSize 12
+  }
+  /* Apply to ALL robust signals: White text hides the labels */
+  robust {
+    LineColor black
+    BackgroundColor white
+    FontColor white
+  }
+  arrow {
+    LineColor blue
+  }
+  constraintArrow {
+    LineThickness 1
+    LineColor black
+    FontColor black
+  }
+  timegrid {
+    LineColor transparent
+  }
+}
+</style>
+
+scale 5 as 60 pixels
+
+' Define Participants - All converted to robust
+robust "KBRQ (T)" as KBRQ
+robust "READY (I)" as READY
+robust "KBACK (T)" as KBACK 
+robust "SCK (I)" as SCK
+robust "SO (T)" as SO
+robust "SI (I)" as SI
+concise "Protocol Phase" as Phase 
+
+' --- State Definitions ---
+
+KBRQ has high,low
+READY has high,low
+KBACK has high,low
+SCK has high,low
+SO has high,low
+SI has high,low
+
+@0
+KBRQ is low
+READY is high
+KBACK is high
+SCK is high
+SO is low
+SI is high
+Phase is {-}
+
+@8
+READY is low
+Phase is ""
+
+@10
+SCK is low
+KBACK is low
+SI is high
+Phase is "TRANSFER"
+@11
+SCK is high
+@12
+SCK is low
+SI is low
+@13
+SCK is high
+@14
+SCK is low
+SI is high
+@15
+SCK is high
+@16
+SCK is low
+SI is low
+@17
+SCK is high
+@18
+SCK is low
+SI is low
+@19
+SCK is high
+@20
+SCK is low
+SI is high
+@21
+SCK is high
+@22
+SCK is low
+SI is low
+@23
+SCK is high
+@24
+SCK is low
+SI is high
+@25
+SCK is high
+Phase is ""
+
+@31
+KBACK is high
+Phase is ""
+
+@33
+READY is high
+Phase is {-}
+
+@38
+KBRQ is high
+KBACK is high
+SO is high
+Phase is ""
+
+@41
+READY is low
+KBRQ is low
+Phase is ""
+
+@44
+SCK is low
+KBACK is low
+SI is low
+SO is low
+Phase is "TRANSFER"
+
+@45
+SCK is high
+@46
+SCK is low
+SI is high
+SO is low
+@47
+SCK is high
+@48
+SCK is low
+SO is high
+@49
+SCK is high
+@50
+SCK is low
+@51
+SCK is high
+@52
+SCK is low
+@53
+SCK is high
+@54
+SCK is low
+@55
+SCK is high
+@56
+SCK is low
+SO is low
+@57
+SCK is high
+@58
+SCK is low
+@59
+SCK is high
+@60
+Phase is ""
+
+@63
+READY is high
+KBRQ is high
+Phase is ""
+
+@65
+KBRQ is low
+Phase is {-}
+
+highlight 8 to 33 #white;line:black : Interface to Typewriter 0xA5
+highlight 38 to 65 #white;line:black : Typewriter to Interface 0x3C\nInterface sends 0x7F "DEL" after direction changes
+
+@enduml

@@ -1,0 +1,171 @@
+@startuml Interface_Initiates_Transmission_TimeGap
+hide time-axis
+title Interface Initiates Transmission
+footer Typewriter (T) / Interface (I)
+
+<style>
+timingDiagram {
+  .signal {
+    LineColor black
+  }
+  concise {
+    LineColor black
+    BackgroundColor white
+    FontSize 12
+  }
+  /* Apply to ALL robust signals: White text hides the labels */
+  robust {
+    LineColor black
+    BackgroundColor white
+    FontColor white
+  }
+  arrow {
+    LineColor blue
+  }
+  constraintArrow {
+    LineThickness 1
+    LineColor black
+    FontColor black
+  }
+  timegrid {
+    LineColor transparent
+  }
+}
+</style>
+
+scale 5 as 100 pixels
+
+' Define Participants - All converted to robust
+robust "KBRQ (T)" as KBRQ
+robust "READY (I)" as READY
+robust "KBACK (T)" as KBACK 
+robust "SCK (I)" as SCK
+robust "SO (T)" as SO
+robust "SI (I)" as SI
+concise "Protocol Phase" as Phase 
+
+' --- State Definitions ---
+
+KBRQ has high,low
+READY has high,low
+KBACK has high,low
+SCK has high,low
+SO has high,low
+SI has high,low
+
+@0
+Phase is {-}
+KBRQ is low
+READY is high
+KBACK is high
+SCK is high
+SO is low
+SI is high
+
+@5
+Phase is "SYN"
+READY is low
+
+@10
+Phase is "TRANSFER"
+' Bit 7 (MSB) = 0
+SCK is low
+SI is low
+' First falling edge forces KBACK LOW
+KBACK is low
+
+@11
+SCK is high
+
+@12
+' Bit 6 = 1
+SCK is low
+SI is high
+
+@13
+SCK is high
+
+@14
+' Bit 5 = 0
+SCK is low
+SI is low
+
+@15
+SCK is high
+
+@16
+' Bit 4 = 0
+SCK is low
+SI is low
+
+@17
+SCK is high
+
+@18
+' Bit 3 = 0
+SCK is low
+SI is low
+
+@19
+SCK is high
+
+@20
+' Bit 2 = 0
+SCK is low
+SI is low
+
+@21
+SCK is high
+
+@22
+' Bit 1 = 1
+SCK is low
+SI is high
+
+@23
+SCK is high
+
+@24
+' Bit 0 (LSB) = 1
+SCK is low
+SI is high
+
+@25
+SCK is high
+
+@26
+Phase is "BUSY"
+
+@31
+' --- END TIME GAP ---
+' Restore signals to their expected state
+KBRQ is low
+READY is low
+KBACK is low
+SCK is high
+SO is low
+SI is high
+
+@36
+' Typewriter finishes processing, releases KBACK
+KBACK is high
+Phase is "FIN"
+
+@40
+' Interface sees KBACK high, releases READY
+READY is high
+Phase is {-}
+
+' --- Time Constraints ---
+Phase@5 <-> @10 : ~40us
+Phase@10 <-> @26 : ~100us
+Phase@26 <-> @36 : ~ 100-500ms (Processing)
+Phase@36 <-> @40 : ~40us
+
+' --- Highlighting ---
+highlight 5 to 10 #EEEEEE;line:DimGrey : Connection
+highlight 10 to 26 #EEEEEE;line:DimGrey : Serial data bits for ASCII "C" (MSB)
+highlight 26 to 40 #EEEEEE;line:DimGrey : Termination
+
+
+@enduml
