@@ -95,7 +95,7 @@ void transferInit(Transfer *ts);
 TransferStatus pollTransfer(Transfer *ts);
 
 // Request an SI transfer — only call when status is TS_STATUS_IDLE
-void transferStartSI(Transfer *ts, uint8_t byte);
+bool transferQueueSI(Transfer *ts, uint8_t byte);
 
 // Check if typewriter is online (KBRQ stable LOW for 100ms)
 // Uses ISR data internally, protocol layer doesn't touch hardware

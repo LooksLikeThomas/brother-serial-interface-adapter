@@ -48,6 +48,10 @@ bool siBufferPop(uint8_t *byte) {
     return true;
 }
 
+uint8_t siBufferPeek() {
+    return siBuffer[siTail];
+}
+
 // ==============================================
 // SO Buffer Functions
 // ==============================================
@@ -72,4 +76,8 @@ bool soBufferPop(uint8_t *byte) {
     *byte = soBuffer[soTail];
     soTail = (soTail + 1) % BUFFER_SIZE;
     return true;
+}
+
+uint8_t soBufferPeek() {
+    return soBuffer[soTail];
 }

@@ -73,7 +73,8 @@ static inline uint32_t readKbrqLowSince() {
 // These are the low-level variables for clocking bits.
 // The timer ISR reads/writes these directly.
 //
-
+static volatile bool siPending = false;         // Flag: protocol layer queued a byte
+static volatile uint8_t siPendingByte = 0;      // The byte waiting to be sent
 static volatile uint8_t dataOut = 0;            // Byte we're sending
 static volatile uint8_t dataIn = 0;             // Byte we're receiving
 static volatile uint8_t bitIndex = 0;           // Current bit position (0-7)
@@ -324,11 +325,11 @@ bool isTypewriterOnline() {
 // Only valid when transfer state is TS_IDLE.
 // Pulls READY LOW and enters SI path.
 //
-void transferStartSI(Transfer *ts, uint8_t byte) {
-    dataOut = byte;
-    setREADYLow();
-    ts->state = TS_SI_SYN;
-    ts->stateEnteredAt = micros();
+bool transferQueueSI(Transfer *ts, uint8_t byte) {
+    if (siPending) return false;  // Previous byte not yet picked up (should not happen)
+    siPendingByte = byte;
+    siPending = true;
+    return true;
 }
 
 // ==============================================
@@ -355,15 +356,22 @@ TransferStatus pollTransfer(Transfer *ts) {
         // ==========================================
         // IDLE — Ready for next transfer
         // ==========================================
-        
         case TS_IDLE:
-            // Check if typewriter wants to send (SO path)
+            // Priority: Typewriter request first (KBRQ)
             if (kbrqRising) {
                 kbrqRising = false;
-                // Enter SO path
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_SYN;
                 return TS_STATUS_SO_BUSY;
+            }
+            // Otherwise: Check if protocol layer queued a byte to send
+            else if (siPending) {
+                siPending = false;
+                dataOut = siPendingByte;
+                setREADYLow();
+                ts->stateEnteredAt = now;
+                ts->state = TS_SI_SYN;
+                return TS_STATUS_SI_BUSY;
             }
             return TS_STATUS_IDLE;
         

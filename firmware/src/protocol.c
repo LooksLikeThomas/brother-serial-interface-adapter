@@ -72,9 +72,10 @@ void pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
         //
         case PS_STARTUP_INIT:
             if (status == TS_STATUS_IDLE) {
-                transferStartSI(ts, 0xFE);
-            }
-            else if (status == TS_STATUS_SI_DONE) {
+                transferQueueSI(ts, 0xFE);
+            }else if(status == TS_SI_BUSY){ 
+                // 0xFE Transfer in progress
+            }else if (status == TS_STATUS_SI_DONE) {
                 // 0xFE sent successfully, wait for device type response
                 ps->stateEnteredAt = now;
                 ps->state = PS_STARTUP_RESPONSE;
@@ -133,10 +134,11 @@ void pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
         //
         case PS_READY:
             if (status == TS_STATUS_IDLE && !siBufferEmpty()) {
-                // Send next byte from SI buffer
-                uint8_t byte;
-                siBufferPop(&byte);
-                transferStartSI(ts, byte);
+                // Peek first, only consume on successful queue
+                uint8_t byte = siBufferPeek();
+                if (transferQueueSI(ts, byte)) {
+                    siBufferPop(&byte);
+                }
             }
             else if (status == TS_STATUS_SO_DONE) {
                 // Store received byte in SO buffer for application layer

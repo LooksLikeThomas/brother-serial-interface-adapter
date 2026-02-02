@@ -20,6 +20,7 @@ bool siBufferEmpty();
 bool siBufferFull();
 bool siBufferPush(uint8_t byte);
 bool siBufferPop(uint8_t *byte);
+uint8_t siBufferPeek();
 
 // ----- SO Buffer (incoming from typewriter) -----
 
@@ -27,5 +28,6 @@ bool soBufferEmpty();
 bool soBufferFull();
 bool soBufferPush(uint8_t byte);
 bool soBufferPop(uint8_t *byte);
+uint8_t soBufferPeek();
 
 #endif // BUFFERS_H
