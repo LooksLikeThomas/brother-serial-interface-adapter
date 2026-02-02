@@ -68,6 +68,9 @@ void setup() {
 //   3. Bridge SO buffer to Serial output
 //   4. Bridge Serial input to SI buffer
 //
+// IMPORTANT: pollProtocol must run in the same iteration
+// as pollTransfer — done statuses are one-shot.
+// See TransferStatus contract in transfer.h.
 void loop() {
     // Run state machines
     TransferStatus status = pollTransfer(&ts);

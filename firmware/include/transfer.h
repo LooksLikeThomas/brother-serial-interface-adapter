@@ -64,6 +64,23 @@ typedef enum {
 // observe what the transfer layer is doing without
 // accessing internal state directly.
 //
+// CONTRACT: TS_STATUS_SI_DONE, TS_STATUS_SO_DONE, and
+// TS_STATUS_TIMEOUT are returned exactly once — on the
+// pollTransfer() call where the transition completes.
+// The next call returns TS_STATUS_IDLE.
+//
+// The protocol layer MUST consume these in the same loop
+// iteration. pollProtocol() is always called directly
+// after pollTransfer() with the returned status, so this
+// is guaranteed by the main loop structure:
+//
+//   TransferStatus status = pollTransfer(&ts);
+//   pollProtocol(&ps, status, &ts);
+//
+// If this loop structure changes (e.g. multiple consumers
+// or deferred processing), a sticky status mechanism
+// would be needed.
+//
 typedef enum {
     TS_STATUS_IDLE,         // Nothing happening, ready for SI request
     TS_STATUS_SI_BUSY,      // SI path in progress
