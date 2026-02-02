@@ -73,7 +73,7 @@ void pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
         case PS_STARTUP_INIT:
             if (status == TS_STATUS_IDLE) {
                 transferQueueSI(ts, 0xFE);
-            }else if(status == TS_SI_BUSY){ 
+            }else if(status == TS_STATUS_SI_BUSY){ 
                 // 0xFE Transfer in progress
             }else if (status == TS_STATUS_SI_DONE) {
                 // 0xFE sent successfully, wait for device type response

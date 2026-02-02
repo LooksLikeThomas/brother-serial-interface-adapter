@@ -22,6 +22,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ==============================================
 // Transfer State Machine
 // ==============================================
@@ -100,5 +104,9 @@ bool transferQueueSI(Transfer *ts, uint8_t byte);
 // Check if typewriter is online (KBRQ stable LOW for 100ms)
 // Uses ISR data internally, protocol layer doesn't touch hardware
 bool isTypewriterOnline();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TRANSFER_H

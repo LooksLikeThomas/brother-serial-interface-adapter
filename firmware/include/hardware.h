@@ -12,6 +12,10 @@
 #include <stdbool.h>
 #include <avr/io.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ==============================================
 // Pin Definitions
 // Change for different hardware
@@ -154,68 +158,68 @@
 //
 
 // ----- SCK (Clock) -----
-inline bool isSCKHigh() {
+static inline bool isSCKHigh() {
     return SCK_PIN & (1 << SCK_BIT);
 }
-inline bool isSCKLow() {
+static inline bool isSCKLow() {
     return !(SCK_PIN & (1 << SCK_BIT));
 }
-inline void setSCKHigh() {
+static inline void setSCKHigh() {
     SCK_PORT |= (1 << SCK_BIT);
 }
-inline void setSCKLow() {
+static inline void setSCKLow() {
     SCK_PORT &= ~(1 << SCK_BIT);
 }
 
 // ----- SI (Signal In — we send to typewriter) -----
-inline bool isSIHigh() {
+static inline bool isSIHigh() {
     return SI_PIN & (1 << SI_BIT);
 }
-inline bool isSILow() {
+static inline bool isSILow() {
     return !(SI_PIN & (1 << SI_BIT));
 }
-inline void setSIHigh() {
+static inline void setSIHigh() {
     SI_PORT |= (1 << SI_BIT);
 }
-inline void setSILow() {
+static inline void setSILow() {
     SI_PORT &= ~(1 << SI_BIT);
 }
 
 // ----- SO (Signal Out — we receive from typewriter) -----
-inline bool isSOHigh() {
+static inline bool isSOHigh() {
     return SO_PIN & (1 << SO_BIT);
 }
-inline bool isSOLow() {
+static inline bool isSOLow() {
     return !(SO_PIN & (1 << SO_BIT));
 }
 
 // ----- READY (we control) -----
-inline bool isREADYHigh() {
+static inline bool isREADYHigh() {
     return READY_PIN & (1 << READY_BIT);
 }
-inline bool isREADYLow() {
+static inline bool isREADYLow() {
     return !(READY_PIN & (1 << READY_BIT));
 }
-inline void setREADYHigh() {
+static inline void setREADYHigh() {
     READY_PORT |= (1 << READY_BIT);
 }
-inline void setREADYLow() {
+static inline void setREADYLow() {
     READY_PORT &= ~(1 << READY_BIT);
 }
 
 // ----- KBRQ (Keyboard Request — typewriter pulls HIGH to send) -----
-inline bool isKBRQHigh() {
+static inline bool isKBRQHigh() {
     return KBRQ_PIN & (1 << KBRQ_BIT);
 }
-inline bool isKBRQLow() {
+static inline bool isKBRQLow() {
     return !(KBRQ_PIN & (1 << KBRQ_BIT));
 }
 
 // ----- KBACK (Keyboard Acknowledge — typewriter resets HIGH when done) -----
-inline bool isKBACKHigh() {
+static inline bool isKBACKHigh() {
     return KBACK_PIN & (1 << KBACK_BIT);
 }
-inline bool isKBACKLow() {
+static inline bool isKBACKLow() {
     return !(KBACK_PIN & (1 << KBACK_BIT));
 }
 
@@ -226,7 +230,7 @@ inline bool isKBACKLow() {
 // Sets pin directions (DDR), initial states, pull-ups,
 // and debug pin configuration.
 //
-inline void setupPins() {
+static inline void setupPins() {
     // ==========================================
     // Pin direction setup using DDR registers
     // ==========================================
@@ -267,5 +271,9 @@ inline void setupPins() {
     DEBUG_SI_PORT    &= ~(1 << DEBUG_SI_BIT);
     DEBUG_SO_PORT    &= ~(1 << DEBUG_SO_BIT);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // HARDWARE_H

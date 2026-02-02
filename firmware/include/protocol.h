@@ -18,6 +18,10 @@
 #include <stdbool.h>
 #include "transfer.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ==============================================
 // Protocol State Machine
 // ==============================================
@@ -52,5 +56,9 @@ void protocolInit(Protocol *ps);
 // Run the protocol state machine — call every loop iteration
 // Takes the transfer status from pollTransfer() and the transfer struct
 void pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // PROTOCOL_H

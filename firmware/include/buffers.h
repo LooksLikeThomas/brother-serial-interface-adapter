@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ----- SI Buffer (outgoing to typewriter) -----
 
 bool siBufferEmpty();
@@ -29,5 +33,9 @@ bool soBufferFull();
 bool soBufferPush(uint8_t byte);
 bool soBufferPop(uint8_t *byte);
 uint8_t soBufferPeek();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // BUFFERS_H
