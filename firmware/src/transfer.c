@@ -192,6 +192,35 @@ static void setupExternalInterrupts() {
 }
 
 // ==============================================
+// State Transition Helper
+// ==============================================
+//
+// Records timestamp for timeout tracking, Updates state, Updates debug pins
+// Called by pollTransfer() on every state change.
+//
+static inline void transitionTo(Transfer *ts, TransferState newState) {
+    ts->stateEnteredAt = micros();
+    ts->state = newState;
+    
+    // State change toggle
+    DEBUG_ONLINE_PORT ^= (1 << DEBUG_ONLINE_BIT);
+    
+    // SI path active
+    if (newState >= TS_SI_SYN && newState <= TS_SI_FIN) {
+        DEBUG_SI_PORT |= (1 << DEBUG_SI_BIT);
+    } else {
+        DEBUG_SI_PORT &= ~(1 << DEBUG_SI_BIT);
+    }
+    
+    // SO path active
+    if (newState >= TS_SO_SYN && newState <= TS_SO_FIN) {
+        DEBUG_SO_PORT |= (1 << DEBUG_SO_BIT);
+    } else {
+        DEBUG_SO_PORT &= ~(1 << DEBUG_SO_BIT);
+    }
+}
+
+// ==============================================
 // Timer1 Compare Match ISR — Clocks One Bit
 // ==============================================
 //
@@ -367,6 +396,7 @@ bool transferQueueSI(Transfer *ts, uint8_t byte) {
     return true;
 }
 
+
 // ==============================================
 // Public: Transfer State Machine
 // ==============================================
@@ -378,14 +408,12 @@ bool transferQueueSI(Transfer *ts, uint8_t byte) {
 // what's happening without touching hardware directly.
 //
 // Two paths:
-//   SI: transferStartSI() → SYN → TRANSFER → BUSY → FIN → IDLE (SI_DONE)
+//   SI: transferQueueSI() → SYN → TRANSFER → BUSY → FIN → IDLE (SI_DONE)
 //   SO: KBRQ rises → SYN → ACK → TRANSFER → BUSY → FIN → IDLE (SO_DONE)
 //
 TransferStatus pollTransfer(Transfer *ts) {
     
     uint32_t now = micros();
-    TransferState previousState = ts->state;
-    TransferStatus status = TS_STATUS_IDLE;
     
     switch (ts->state) {
         
@@ -403,10 +431,9 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Action: Clear flag, enter SO synchronization
             if (kbrqRising) {
                 kbrqRising = false;
-                ts->stateEnteredAt = now;
-                ts->state = TS_SO_SYN;
-                status = TS_STATUS_SO_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SO_SYN);
+                return TS_STATUS_SO_BUSY;
             }
             
             // ----- TRANSITION: Protocol layer queued a byte -----
@@ -416,15 +443,13 @@ TransferStatus pollTransfer(Transfer *ts) {
                 siPending = false;
                 dataOut = siPendingByte;
                 setREADYLow();
-                ts->stateEnteredAt = now;
-                ts->state = TS_SI_SYN;
-                status = TS_STATUS_SI_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SI_SYN);
+                return TS_STATUS_SI_BUSY;
             }
             
             // No transition
-            status = TS_STATUS_IDLE;
-            break;
+            return TS_STATUS_IDLE;
         
         // ==========================================
         // SI Path — Interface (Arduino) Initiates
@@ -445,15 +470,13 @@ TransferStatus pollTransfer(Transfer *ts) {
             if (now - ts->stateEnteredAt >= 30) {
                 kbackRising = false;
                 startBitTransfer(dataOut);
-                ts->stateEnteredAt = now;
-                ts->state = TS_SI_TRANSFER;
-                status = TS_STATUS_SI_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SI_TRANSFER);
+                return TS_STATUS_SI_BUSY;
             }
             
             // No transition
-            status = TS_STATUS_SI_BUSY;
-            break;
+            return TS_STATUS_SI_BUSY;
         
         // ------------------------------------------
         // TS_SI_TRANSFER — 8-bit transfer in progress
@@ -468,15 +491,13 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Guard: transferComplete flag set
             // Action: Enter KBACK wait state
             if (transferComplete) {
-                ts->stateEnteredAt = now;
-                ts->state = TS_SI_BUSY;
-                status = TS_STATUS_SI_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SI_BUSY);
+                return TS_STATUS_SI_BUSY;
             }
             
             // No transition
-            status = TS_STATUS_SI_BUSY;
-            break;
+            return TS_STATUS_SI_BUSY;
         
         // ------------------------------------------
         // TS_SI_BUSY — Waiting for typewriter acknowledgment
@@ -492,10 +513,9 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Action: Enter finalization delay
             if (kbackRising) {
                 kbackRising = false;
-                ts->stateEnteredAt = now;
-                ts->state = TS_SI_FIN;
-                status = TS_STATUS_SI_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SI_FIN);
+                return TS_STATUS_SI_BUSY;
             }
             
             // ----- TRANSITION: Timeout -----
@@ -506,14 +526,13 @@ TransferStatus pollTransfer(Transfer *ts) {
                 kbrqRising = false;
                 kbrqFalling = false;
                 setREADYHigh();
-                ts->state = TS_IDLE;
-                status = TS_STATUS_TIMEOUT;
-                break;
+                // Transition State
+                transitionTo(ts, TS_IDLE);
+                return TS_STATUS_TIMEOUT;
             }
             
             // No transition
-            status = TS_STATUS_SI_BUSY;
-            break;
+            return TS_STATUS_SI_BUSY;
         
         // ------------------------------------------
         // TS_SI_FIN — Finalization delay
@@ -532,14 +551,13 @@ TransferStatus pollTransfer(Transfer *ts) {
                 ts->lastWasSI = true;
                 kbrqRising = false;
                 kbrqFalling = false;
-                ts->state = TS_IDLE;
-                status = TS_STATUS_SI_DONE;
-                break;
+                // Transition State
+                transitionTo(ts, TS_IDLE);
+                return TS_STATUS_SI_DONE;
             }
             
             // No transition
-            status = TS_STATUS_SI_BUSY;
-            break;
+            return TS_STATUS_SI_BUSY;
         
         // ==========================================
         // SO Path — Typewriter Initiates
@@ -559,15 +577,13 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Action: Pull READY LOW to acknowledge
             if (now - ts->stateEnteredAt >= 100) {
                 setREADYLow();
-                ts->stateEnteredAt = now;
-                ts->state = TS_SO_ACK;
-                status = TS_STATUS_SO_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SO_ACK);
+                return TS_STATUS_SO_BUSY;
             }
             
             // No transition
-            status = TS_STATUS_SO_BUSY;
-            break;
+            return TS_STATUS_SO_BUSY;
         
         // ------------------------------------------
         // TS_SO_ACK — Acknowledge delay
@@ -587,15 +603,13 @@ TransferStatus pollTransfer(Transfer *ts) {
                 } else {
                     startBitTransfer(0xFF);
                 }
-                ts->stateEnteredAt = now;
-                ts->state = TS_SO_TRANSFER;
-                status = TS_STATUS_SO_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SO_TRANSFER);
+                return TS_STATUS_SO_BUSY;
             }
             
             // No transition
-            status = TS_STATUS_SO_BUSY;
-            break;
+            return TS_STATUS_SO_BUSY;
         
         // ------------------------------------------
         // TS_SO_TRANSFER — 8-bit transfer in progress
@@ -611,15 +625,13 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Action: Store received byte, enter post-transfer delay
             if (transferComplete) {
                 ts->receivedByte = dataIn;
-                ts->stateEnteredAt = now;
-                ts->state = TS_SO_BUSY;
-                status = TS_STATUS_SO_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SO_BUSY);
+                return TS_STATUS_SO_BUSY;
             }
             
             // No transition
-            status = TS_STATUS_SO_BUSY;
-            break;
+            return TS_STATUS_SO_BUSY;
         
         // ------------------------------------------
         // TS_SO_BUSY — Post-transfer delay
@@ -635,15 +647,13 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Action: Release READY, wait for KBRQ to fall
             if (now - ts->stateEnteredAt >= 240) {
                 setREADYHigh();
-                ts->stateEnteredAt = now;
-                ts->state = TS_SO_FIN;
-                status = TS_STATUS_SO_BUSY;
-                break;
+                // Transition State
+                transitionTo(ts, TS_SO_FIN);
+                return TS_STATUS_SO_BUSY;
             }
             
             // No transition
-            status = TS_STATUS_SO_BUSY;
-            break;
+            return TS_STATUS_SO_BUSY;
         
         // ------------------------------------------
         // TS_SO_FIN — Wait for KBRQ release
@@ -661,9 +671,9 @@ TransferStatus pollTransfer(Transfer *ts) {
                 kbrqFalling = false;
                 kbrqRising = false;
                 ts->lastWasSI = false;
-                ts->state = TS_IDLE;
-                status = TS_STATUS_SO_DONE;
-                break;
+                // Transition State
+                transitionTo(ts, TS_IDLE);
+                return TS_STATUS_SO_DONE;
             }
             
             // ----- TRANSITION: Timeout -----
@@ -672,46 +682,19 @@ TransferStatus pollTransfer(Transfer *ts) {
             if (isKBRQHigh() && (now - ts->stateEnteredAt >= 100000)) {
                 kbrqRising = false;
                 kbrqFalling = false;
-                ts->state = TS_IDLE;
-                status = TS_STATUS_TIMEOUT;
-                break;
+                // Transition State
+                transitionTo(ts, TS_IDLE);
+                return TS_STATUS_TIMEOUT;
             }
             
             // No transition
-            status = TS_STATUS_SO_BUSY;
-            break;
+            return TS_STATUS_SO_BUSY;
         
         // ------------------------------------------
         // DEFAULT — Should never happen
         // ------------------------------------------
         default:
-            ts->state = TS_IDLE;
-            status = TS_STATUS_IDLE;
-            break;
+            transitionTo(ts, TS_IDLE);
+            return TS_STATUS_IDLE;
     }
-    
-    // ==============================================
-    // Debug Pin Updates
-    // ==============================================
-    
-    // State change toggle
-    if (ts->state != previousState) {
-        DEBUG_ONLINE_PORT ^= (1 << DEBUG_ONLINE_BIT);
-    }
-    
-    // SI path active
-    if (ts->state >= TS_SI_SYN && ts->state <= TS_SI_FIN) {
-        DEBUG_SI_PORT |= (1 << DEBUG_SI_BIT);
-    } else {
-        DEBUG_SI_PORT &= ~(1 << DEBUG_SI_BIT);
-    }
-    
-    // SO path active
-    if (ts->state >= TS_SO_SYN && ts->state <= TS_SO_FIN) {
-        DEBUG_SO_PORT |= (1 << DEBUG_SO_BIT);
-    } else {
-        DEBUG_SO_PORT &= ~(1 << DEBUG_SO_BIT);
-    }
-    
-    return status;
 }
