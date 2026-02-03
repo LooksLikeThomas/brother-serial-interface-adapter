@@ -484,16 +484,12 @@ TransferStatus pollTransfer(Transfer *ts) {
             
             // ----- TRANSITION: Timeout -----
             // Guard: 5s elapsed without KBACK
-            // Action: Release READY, enable interrupt, return to idle
+            // Action: Enter error state, wait for protocol layer to reset
             if (now - ts->stateEnteredAt >= 5000000) {
-                // Release READY
-                setREADYHigh();
-                // Enable KBRQ-Interrupt 
+                disableKBRQInterrupt();
                 clearKBRQFlags();
-                enableKBRQInterrupt();
-                // Transition State
-                transitionTo(ts, TS_IDLE);
-                return TS_STATUS_TIMEOUT;
+                transitionTo(ts, TS_ERROR);
+                return TS_STATUS_ERROR;
             }
             
             // No transition
@@ -660,17 +656,31 @@ TransferStatus pollTransfer(Transfer *ts) {
             
             // ----- TRANSITION: Timeout -----
             // Guard: 100ms elapsed with KBRQ still HIGH
-            // Action: Clear flags, return to idle (keep interrupt enabled)
+            // Action: Enter error state, wait for protocol layer to reset
             if (now - ts->stateEnteredAt >= 100000) {
+                disableKBRQInterrupt();
                 clearKBRQFlags();
-                // Keep interrupt enabled for TS_IDLE
-                // Transition State
-                transitionTo(ts, TS_IDLE);
-                return TS_STATUS_TIMEOUT;
+                transitionTo(ts, TS_ERROR);
+                return TS_STATUS_ERROR;
             }
             
             // No transition
             return TS_STATUS_SO_BUSY;
+
+            
+        // ==========================================
+        // ERROR — Waiting for protocol layer to reset
+        // ==========================================
+        //
+        // Entry: Timeout in SI_BUSY or SO_FIN
+        // Exit:  Protocol layer calls transferInit()
+        //
+        // Hardware state is frozen. Protocol layer decides
+        // when and how to recover.
+        //
+        case TS_ERROR:
+            return TS_STATUS_ERROR;
+
         
         // ------------------------------------------
         // DEFAULT — Should never happen

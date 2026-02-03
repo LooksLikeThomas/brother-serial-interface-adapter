@@ -52,7 +52,11 @@ typedef enum {
     TS_SO_ACK,          // READY pulled LOW, waiting ~200µs
     TS_SO_TRANSFER,     // Clocking 8 bits via timer ISR
     TS_SO_BUSY,         // Waiting ~240µs before releasing READY
-    TS_SO_FIN           // Waiting for KBRQ to fall back
+    TS_SO_FIN,          // Waiting for KBRQ to fall back
+
+    // ----- Error -----
+    
+    TS_ERROR            // Timeout or error, waiting for protocol layer to reset
     
 } TransferState;
 
@@ -87,7 +91,8 @@ typedef enum {
     TS_STATUS_SI_DONE,      // SI path completed successfully
     TS_STATUS_SO_BUSY,      // SO path in progress (typewriter initiated)
     TS_STATUS_SO_DONE,      // SO path completed, byte available in receivedByte
-    TS_STATUS_TIMEOUT       // Typewriter not responding (5s KBACK or 100ms KBRQ)
+    TS_STATUS_TIMEOUT,      // Typewriter not responding (5s KBACK or 100ms KBRQ)
+    TS_STATUS_ERROR         // Error/timeout, persistent until transferInit() called
 } TransferStatus;
 
 // ==============================================

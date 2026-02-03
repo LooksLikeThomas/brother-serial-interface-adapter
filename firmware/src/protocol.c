@@ -61,6 +61,19 @@ void protocolInit(Protocol *ps) {
 // All hardware interaction goes through the transfer layer.
 //
 ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
+
+    // ==========================================
+    // Global Error Handling
+    // ==========================================
+    //
+    // Transfer layer error can happen in any active state.
+    // Reset transfer layer and return to offline.
+    //
+    if (status == TS_STATUS_ERROR) {
+        transferInit(ts);
+        transitionTo(ps, PS_OFFLINE);
+        return PS_STATUS_OFFLINE;
+    }
     
     switch (ps->state) {
         
