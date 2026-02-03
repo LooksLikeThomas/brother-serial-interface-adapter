@@ -50,16 +50,16 @@ extern "C" {
 #define READY_BIT       6       // Bit position (pin 6 = PORTD bit 6)
 
 // KBRQ  Keyboard Request — Typewriter pulls HIGH to request transmission
-// Uses external interrupts INT0
+// Uses external interrupt INT0
 #define PIN_KBRQ        2       // Arduino pin number (INT0)
 #define KBRQ_PORT       PORTD   // Port register for writing (pull-up)
 #define KBRQ_PIN        PIND    // Pin register for reading
 #define KBRQ_DDR        DDRD    // Data direction register
 #define KBRQ_BIT        2       // Bit position (pin 2 = PORTD bit 2)
 
-// KBACK Keyboard Acknowledge, typewriter resets HIGH when done processing Trasmission
-// Uses external interrupts INT1
-#define PIN_KBACK       3       // Arduino pin number (INT1)
+// KBACK Keyboard Acknowledge, typewriter resets HIGH when done processing Transmission
+// Directly polled, no interrupt used
+#define PIN_KBACK       3       // Arduino pin number
 #define KBACK_PORT      PORTD   // Port register for writing (pull-up)
 #define KBACK_PIN       PIND    // Pin register for reading
 #define KBACK_DDR       DDRD    // Data direction register
@@ -90,7 +90,10 @@ extern "C" {
 // ==============================================
 //
 // INT0 (pin 2) — KBRQ any edge
-// INT1 (pin 3) — KBACK rising edge
+//
+// KBACK (pin 3) is polled directly, no interrupt needed.
+// The typewriter waits for us to acknowledge, so there's
+// no timing constraint that requires an ISR.
 //
 // Change for different hardware
 //
@@ -98,16 +101,13 @@ extern "C" {
 // Interrupt control registers (ATmega328P)
 #define EXT_INT_CONTROL     EICRA   // External Interrupt Control Register A
 #define EXT_INT_MASK        EIMSK   // External Interrupt Mask Register
+#define EXT_INT_FLAG        EIFR    // External Interrupt Flag Register
 
 // INT0 — KBRQ
 #define INT0_ENABLE         INT0    // Bit in EIMSK to enable INT0
+#define INT0_FLAG           INTF0   // Bit in EIFR to clear pending interrupt
 #define INT0_MODE_BIT0      ISC00   // Interrupt sense control bit 0
 #define INT0_MODE_BIT1      ISC01   // Interrupt sense control bit 1
-
-// INT1 — KBACK
-#define INT1_ENABLE         INT1    // Bit in EIMSK to enable INT1
-#define INT1_MODE_BIT0      ISC10   // Interrupt sense control bit 0
-#define INT1_MODE_BIT1      ISC11   // Interrupt sense control bit 1
 
 // Mode settings (for reference)
 // 00 = low level
@@ -224,6 +224,26 @@ static inline bool isKBACKLow() {
 }
 
 // ==============================================
+// KBRQ Interrupt Control
+// ==============================================
+//
+// KBRQ interrupt is only enabled when we need to detect edges:
+//   - In TS_IDLE: waiting for rising edge (typewriter wants to send)
+//   - In TS_SO_FIN: waiting for falling edge (transfer complete)
+//
+// Disabled during active transfers to avoid spurious flag sets.
+//
+
+static inline void enableKBRQInterrupt() {
+    EXT_INT_FLAG |= (1 << INT0_FLAG);   // Clear any pending interrupt
+    EXT_INT_MASK |= (1 << INT0_ENABLE); // Enable INT0
+}
+
+static inline void disableKBRQInterrupt() {
+    EXT_INT_MASK &= ~(1 << INT0_ENABLE);
+}
+
+// ==============================================
 // Pin Configuration
 // ==============================================
 //
@@ -241,7 +261,7 @@ static inline void setupPins() {
     SI_DDR  |= (1 << SI_BIT);         // SI as output
     SO_DDR  &= ~(1 << SO_BIT);        // SO as input
     READY_DDR |= (1 << READY_BIT);    // READY as output
-    KBRQ_DDR  &= ~(1 << KBRQ_BIT);   // KBRQ as input
+    KBRQ_DDR  &= ~(1 << KBRQ_BIT);    // KBRQ as input
     KBACK_DDR &= ~(1 << KBACK_BIT);   // KBACK as input
     
     // ==========================================
@@ -252,7 +272,7 @@ static inline void setupPins() {
     SI_PORT  |= (1 << SI_BIT);        // SI HIGH (pull-up / idle)
     SO_PORT  |= (1 << SO_BIT);        // SO pull-up enabled
     READY_PORT |= (1 << READY_BIT);   // READY HIGH (idle)
-    KBRQ_PORT  |= (1 << KBRQ_BIT);   // KBRQ pull-up enabled
+    KBRQ_PORT  |= (1 << KBRQ_BIT);    // KBRQ pull-up enabled
     KBACK_PORT |= (1 << KBACK_BIT);   // KBACK pull-up enabled
     
     // ==========================================

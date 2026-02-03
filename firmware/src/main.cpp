@@ -38,22 +38,20 @@ void setup() {
     // Set up pin directions, pull-ups, and initial states
     setupPins();
     
-    // Initialize transfer layer (timer, external interrupts)
-    // Does NOT enable interrupts yet, just configures registers
+    // Initialize transfer layer (timer, KBRQ interrupt)
+    // Configures everything and enables KBRQ interrupt,
+    // but ISRs won't fire until interrupts() is called
     transferInit(&ts);
     
     // Initialize protocol layer (state machine)
     protocolInit(&ps);
     
-    interrupts();
-    
-    // Let hardware settle AFTER everything is configured
-    // ISRs are now active but state machine is in PS_TW_OFF
-    // which ignores everything except isTypewriterOnline()
+    // Let hardware settle with interrupts disabled
+    // No spurious ISR flags can accumulate during this time
     delay(200);
     
-    // Clear any flags that accumulated during settle time
-    transferClearFlags();
+    // Now enable interrupts — system is ready
+    interrupts();
 }
 
 // ==============================================
@@ -69,6 +67,7 @@ void setup() {
 // IMPORTANT: pollProtocol must run in the same iteration
 // as pollTransfer — done statuses are one-shot.
 // See TransferStatus contract in transfer.h.
+//
 void loop() {
     // Run state machines
     TransferStatus status = pollTransfer(&ts);

@@ -9,6 +9,10 @@
 // All ISRs and hardware interaction for transfers live here.
 // The protocol layer only sees TransferStatus and receivedByte.
 //
+// Interrupt Strategy:
+//   KBRQ (INT0): Only enabled when waiting for edges (TS_IDLE, TS_SO_FIN)
+//   KBACK: Polled directly in TS_SI_BUSY — no ISR needed
+//
 #include "transfer.h"
 #include "hardware.h"
 
@@ -18,20 +22,8 @@
 #include <Arduino.h>
 
 // ==============================================
-// Internal Helper Functions
+// Transfer Timer Control
 // ==============================================
-
-// ----- External Interrupt Control -----
-
-static inline void disableExternalInterrupts() {
-    EXT_INT_MASK &= ~((1 << INT0_ENABLE) | (1 << INT1_ENABLE));
-}
-
-static inline void enableExternalInterrupts() {
-    EXT_INT_MASK |= (1 << INT0_ENABLE) | (1 << INT1_ENABLE);
-}
-
-// ----- Transfer Timer Control -----
 
 static inline void startTransferTimer() {
     TIMER_CONTROL_B |= (1 << TIMER_PRESCALE_1);
@@ -43,27 +35,30 @@ static inline void stopTransferTimer() {
 }
 
 // ==============================================
-// ISR Flags — Set by ISRs, read by state machine
-// ==============================================
-
-static volatile bool kbrqRising = false;        // Flag: KBRQ just went HIGH
-static volatile bool kbrqFalling = false;       // Flag: KBRQ just went LOW
-static volatile uint32_t kbrqLowSince = 0;      // micros() when KBRQ went LOW (0 if HIGH)
-static volatile bool kbackRising = false;        // Flag: KBACK just went HIGH
-
-// ==============================================
-// Atomic Read Helper
+// ISR Flags — Set by ISR, read by state machine
 // ==============================================
 //
-// kbrqLowSince is 32-bit, AVR reads it in 4 steps.
-// INT0 ISR can modify it between reads, causing corrupted data.
-// Disable external interrupts during read to prevent this.
+// Only KBRQ flags remain. KBACK is polled directly.
 //
-static inline uint32_t readKbrqLowSince() {
-    disableExternalInterrupts();
-    uint32_t val = kbrqLowSince;
-    enableExternalInterrupts();
-    return val;
+// These flags are only meaningful when the KBRQ interrupt is enabled:
+//   - TS_IDLE: waiting for kbrqRising
+//   - TS_SO_FIN: waiting for kbrqFalling
+//
+
+static volatile bool kbrqRising = false;    // Flag: KBRQ just went HIGH
+static volatile bool kbrqFalling = false;   // Flag: KBRQ just went LOW
+
+// ==============================================
+// KBRQ Flag Control
+// ==============================================
+//
+// Clear flags before enabling interrupt to ensure we only
+// see edges that occur after we start watching.
+//
+
+static inline void clearKBRQFlags() {
+    kbrqRising = false;
+    kbrqFalling = false;
 }
 
 // ==============================================
@@ -73,13 +68,14 @@ static inline uint32_t readKbrqLowSince() {
 // These are the low-level variables for clocking bits.
 // The timer ISR reads/writes these directly.
 //
+
 static volatile bool siPending = false;         // Flag: protocol layer queued a byte
 static volatile uint8_t siPendingByte = 0;      // The byte waiting to be sent
 static volatile uint8_t dataOut = 0;            // Byte we're sending
 static volatile uint8_t dataIn = 0;             // Byte we're receiving
 static volatile uint8_t bitIndex = 0;           // Current bit position (0-7)
-static volatile bool transferComplete = false;   // Flag: 8-bit transfer finished
-static volatile bool clockPhase = true;          // SCK phase: true = HIGH (idle), false = LOW
+static volatile bool transferComplete = false;  // Flag: 8-bit transfer finished
+static volatile bool clockPhase = true;         // SCK phase: true = HIGH (idle), false = LOW
 
 // ==============================================
 // Start a Bit Transfer
@@ -88,19 +84,8 @@ static volatile bool clockPhase = true;          // SCK phase: true = HIGH (idle
 // Resets bit-level state and starts the timer.
 // After this, the timer ISR takes over and clocks 8 bits.
 //
-// noInterrupts()
-//     │
-//     ↓ Reset transfer state
-//     ↓ Disable external interrupts
-//     ↓ Start timer
-//     │
-// interrupts()
-//     │
-//     ↓ Timer counts to TIMER_COMPARE_VALUE
-//     ↓ ISR fires, stops timer
-//     ↓ ISR pulls SCK LOW (falling edge)
-//     ↓ ISR sets bit 7 on SI
-//     ↓ ISR restarts timer
+// Note: KBRQ interrupt is already disabled when this is called
+// (disabled when leaving TS_IDLE or at start of SI path).
 //
 static void startBitTransfer(uint8_t byteToSend) {
     noInterrupts();
@@ -109,8 +94,8 @@ static void startBitTransfer(uint8_t byteToSend) {
     dataIn = 0;
     bitIndex = 0;
     transferComplete = false;
+    clockPhase = true;
     
-    disableExternalInterrupts();
     startTransferTimer();
     
     interrupts();
@@ -127,8 +112,6 @@ static void startBitTransfer(uint8_t byteToSend) {
 //
 static void stopBitTransfer() {
     transferComplete = true;
-    // setSIHigh(); // Not protocol but easier to read on scope
-    enableExternalInterrupts();
 }
 
 // ==============================================
@@ -164,7 +147,8 @@ static void setupTransferTimer() {
 // External Interrupt Setup
 // ==============================================
 //
-// Configures INT0 (KBRQ) for any edge and INT1 (KBACK) for rising edge.
+// Configures INT0 (KBRQ) for any edge detection.
+// Interrupt starts DISABLED — only enabled in states that need it.
 //
 static void setupExternalInterrupts() {
     // ----- INT0 (KBRQ) — Any Edge -----
@@ -172,23 +156,12 @@ static void setupExternalInterrupts() {
     EXT_INT_CONTROL |= (1 << INT0_MODE_BIT0);   // 01 = any edge
     EXT_INT_CONTROL &= ~(1 << INT0_MODE_BIT1);
     
-    // ----- INT1 (KBACK) — Rising Edge -----
+    // Clear any pending interrupt flag from pin setup transients
+    EXT_INT_FLAG |= (1 << INT0_FLAG);
     
-    EXT_INT_CONTROL |= (1 << INT1_MODE_BIT1) | (1 << INT1_MODE_BIT0);  // 11 = rising
-
-    // Clear any pending interrupt flags from pin setup transients
-    EIFR |= (1 << INTF0) | (1 << INTF1);
-    
-    // ----- Enable Both Interrupts -----
-    
-    enableExternalInterrupts();
-    
-    // ----- Initialize KBRQ state -----
-    // If KBRQ is already LOW, start tracking how long it's been LOW
-    
-    if (isKBRQLow()) {
-        kbrqLowSince = micros();
-    }
+    // Start with interrupt DISABLED
+    // Will be enabled when entering TS_IDLE
+    disableKBRQInterrupt();
 }
 
 // ==============================================
@@ -286,50 +259,44 @@ ISR(TIMER1_COMPA_vect) {
     // Toggle Phase-Flag
     clockPhase = !clockPhase;
     
-    // Restart timer for low phase
+    // Restart timer for next phase
     startTransferTimer();
 }
 
 
 // ==============================================
-// External Interrupt Service Routines
+// External Interrupt Service Routine
 // ==============================================
 //
-// These just set flags. The state machine in pollTransfer()
-// checks the flags and handles the logic.
+// INT0: KBRQ Any Edge
 //
-
-// ----- INT0: KBRQ Any Edge -----
-//
-// HIGH: Typewriter wants to send a byte
-// LOW:  Normal idle state
+// Only enabled in states that need edge detection:
+//   - TS_IDLE: looking for rising edge (typewriter wants to send)
+//   - TS_SO_FIN: looking for falling edge (transfer complete)
 //
 ISR(INT0_vect) {
     DEBUG_ISR_PORT ^= (1 << DEBUG_ISR_BIT);
 
     if (isKBRQHigh()) {
-        // KBRQ is HIGH — rising edge                                                                                                                                                                                                                                                                                                                                                              
+        // Rising edge — typewriter requests to send
         kbrqRising = true;
-        kbrqLowSince = 0;
     } else {
-        // KBRQ is LOW — falling edge
+        // Falling edge — typewriter released KBRQ
         kbrqFalling = true;
-        kbrqLowSince = micros();
     }
-}
-
-// ----- INT1: KBACK Rising Edge -----
-//
-// Typewriter finished processing (SI path only)
-//
-ISR(INT1_vect) {
-    kbackRising = true;
 }
 
 // ==============================================
 // Public: Initialize Transfer Layer
 // ==============================================
-
+//
+// Sets up timer, configures KBRQ interrupt, and prepares
+// for TS_IDLE state.
+//
+// Call with interrupts disabled. The KBRQ interrupt is
+// enabled at the end, ready to detect typewriter requests
+// once global interrupts are enabled.
+//
 void transferInit(Transfer *ts) {
     ts->state = TS_IDLE;
     ts->stateEnteredAt = 0;
@@ -338,49 +305,30 @@ void transferInit(Transfer *ts) {
     
     setupTransferTimer();
     setupExternalInterrupts();
-}
-
-// ==============================================
-// Public: Clear ISR Flags
-// ==============================================
-//
-// Resets all ISR-set flags to their default state.
-// Call after hardware settle time to discard any
-// spurious edges from pin configuration transients
-// or typewriter power-on noise.
-//
-// Must be called after transferInit() and after
-// any delay used for hardware settling.
-//
-void transferClearFlags() {
-    noInterrupts();
-    kbrqRising = false;
-    kbrqFalling = false;
-    kbackRising = false;
+    
+    // Clear flags and enable KBRQ interrupt for TS_IDLE
+    clearKBRQFlags();
     siPending = false;
-
-    if (isKBRQLow()) {
-        kbrqLowSince = micros();
-    }else{
-        kbrqLowSince = 0;
-    }
-    interrupts();
+    transferComplete = false;
+    enableKBRQInterrupt();
 }
 
 // ==============================================
 // Public: Check Typewriter Online
 // ==============================================
 //
-// Typewriter is considered online when KBRQ has been
-// stable LOW for at least 100ms. Uses ISR data internally,
-// protocol layer doesn't need to touch any hardware lines.
+// TODO: This will be replaced with a dedicated 5V power
+// detection pin for reliable online/offline detection.
+//
+// Current implementation checks signal states as a proxy:
+//   - KBRQ LOW: typewriter not requesting to send
+//   - SO LOW: typewriter not mid-transmission
+//
+// This is unreliable because pull-ups can make signals
+// appear valid even when typewriter is disconnected.
 //
 bool isTypewriterOnline() {
-    uint32_t lowSince = readKbrqLowSince();
-    return (lowSince != 0 
-            && (micros() - lowSince >= 1500000)
-            && isKBRQLow()
-            && isSOLow());
+    return isKBRQLow() && isSOLow();
 }
 
 // ==============================================
@@ -413,6 +361,13 @@ bool transferQueueSI(Transfer *ts, uint8_t byte) {
 //   SI: transferQueueSI() → SYN → TRANSFER → BUSY → FIN → IDLE (SI_DONE)
 //   SO: KBRQ rises → SYN → ACK → TRANSFER → BUSY → FIN → IDLE (SO_DONE)
 //
+// Interrupt enable/disable points:
+//   - TS_IDLE: KBRQ interrupt enabled, waiting for rising edge
+//   - Leaving TS_IDLE: disable KBRQ interrupt
+//   - TS_SO_BUSY → TS_SO_FIN: enable KBRQ interrupt (waiting for falling edge)
+//   - TS_SI_FIN → TS_IDLE: enable KBRQ interrupt
+//   - TS_SO_FIN → TS_IDLE: keep KBRQ interrupt enabled
+//
 TransferStatus pollTransfer(Transfer *ts) {
     
     uint32_t now = micros();
@@ -426,13 +381,17 @@ TransferStatus pollTransfer(Transfer *ts) {
         // Entry: After SI_FIN or SO_FIN completes, or on init
         // Exit:  KBRQ rises (SO path) or siPending set (SI path)
         //
+        // KBRQ interrupt is ENABLED in this state.
+        //
         case TS_IDLE:
         
             // ----- TRANSITION: Typewriter requests to send -----
-            // Guard: KBRQ rose
-            // Action: Clear flag, enter SO synchronization
+            // Guard: KBRQ rose (ISR set flag)
+            // Action: Disable interrupt, enter SO synchronization
             if (kbrqRising) {
-                kbrqRising = false;
+                // Disable and clear KBRQ Interrupt
+                disableKBRQInterrupt();
+                clearKBRQFlags();
                 // Transition State
                 transitionTo(ts, TS_SO_SYN);
                 return TS_STATUS_SO_BUSY;
@@ -440,10 +399,15 @@ TransferStatus pollTransfer(Transfer *ts) {
             
             // ----- TRANSITION: Protocol layer queued a byte -----
             // Guard: siPending flag set
-            // Action: Pull READY LOW, enter SI synchronization
+            // Action: Disable interrupt, pull READY LOW, enter SI synchronization
             if (siPending) {
+                // Clear SI-Pending flag and set dataOut
                 siPending = false;
                 dataOut = siPendingByte;
+                // Disable and clear KBRQ Interrupt
+                disableKBRQInterrupt();
+                clearKBRQFlags();
+                // Set READY LOW
                 setREADYLow();
                 // Transition State
                 transitionTo(ts, TS_SI_SYN);
@@ -470,7 +434,6 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Guard: 30µs since READY went LOW
             // Action: Start 8-bit transfer via timer ISR
             if (now - ts->stateEnteredAt >= 30) {
-                kbackRising = false;
                 startBitTransfer(dataOut);
                 // Transition State
                 transitionTo(ts, TS_SI_TRANSFER);
@@ -511,10 +474,9 @@ TransferStatus pollTransfer(Transfer *ts) {
         case TS_SI_BUSY:
         
             // ----- TRANSITION: Typewriter acknowledged -----
-            // Guard: KBACK rose
+            // Guard: KBACK is HIGH (polled directly)
             // Action: Enter finalization delay
-            if (kbackRising) {
-                kbackRising = false;
+            if (isKBACKHigh()) {
                 // Transition State
                 transitionTo(ts, TS_SI_FIN);
                 return TS_STATUS_SI_BUSY;
@@ -522,12 +484,13 @@ TransferStatus pollTransfer(Transfer *ts) {
             
             // ----- TRANSITION: Timeout -----
             // Guard: 5s elapsed without KBACK
-            // Action: Release READY, return to idle
+            // Action: Release READY, enable interrupt, return to idle
             if (now - ts->stateEnteredAt >= 5000000) {
-                kbackRising = false;
-                kbrqRising = false;
-                kbrqFalling = false;
+                // Release READY
                 setREADYHigh();
+                // Enable KBRQ-Interrupt 
+                clearKBRQFlags();
+                enableKBRQInterrupt();
                 // Transition State
                 transitionTo(ts, TS_IDLE);
                 return TS_STATUS_TIMEOUT;
@@ -547,12 +510,14 @@ TransferStatus pollTransfer(Transfer *ts) {
         
             // ----- TRANSITION: Finalization complete -----
             // Guard: 40µs since KBACK rose
-            // Action: Release READY, clear flags, signal SI_DONE
+            // Action: Enable interrupt, release READY, signal SI_DONE
             if (now - ts->stateEnteredAt >= 40) {
-                setREADYHigh();
                 ts->lastWasSI = true;
-                kbrqRising = false;
-                kbrqFalling = false;
+                // Enable interrupt BEFORE releasing READY to catch any SO request
+                clearKBRQFlags();
+                enableKBRQInterrupt();
+                // Release Ready
+                setREADYHigh();
                 // Transition State
                 transitionTo(ts, TS_IDLE);
                 return TS_STATUS_SI_DONE;
@@ -593,6 +558,10 @@ TransferStatus pollTransfer(Transfer *ts) {
         //
         // Entry: READY just pulled LOW
         // Exit:  ~200µs elapsed
+        //
+        // KBRQ interrupt is DISABLED.
+        // Note: Pulling READY LOW forces KBRQ LOW (per protocol spec).
+        // We don't care about this expected edge.
         //
         case TS_SO_ACK:
         
@@ -646,8 +615,14 @@ TransferStatus pollTransfer(Transfer *ts) {
         
             // ----- TRANSITION: Post-transfer delay elapsed -----
             // Guard: 240µs since transfer completed
-            // Action: Release READY, wait for KBRQ to fall
+            // Action: Enable interrupt, release READY, wait for KBRQ to fall
             if (now - ts->stateEnteredAt >= 240) {
+                // Enable interrupt and clear flags BEFORE releasing READY.
+                // Per protocol: KBRQ rises briefly with READY, then typewriter
+                // pulls it LOW again. We need to catch that falling edge.
+                clearKBRQFlags();
+                enableKBRQInterrupt();
+                // Set READY HIGH: This may set kbrqRising, we clear it in TS_SO_FIN
                 setREADYHigh();
                 // Transition State
                 transitionTo(ts, TS_SO_FIN);
@@ -664,15 +639,20 @@ TransferStatus pollTransfer(Transfer *ts) {
         // Entry: READY released
         // Exit:  KBRQ falls → SO_DONE (one-shot), or 100ms timeout
         //
+        // KBRQ interrupt is ENABLED, waiting for falling edge.
+        // Per protocol: KBRQ rises briefly when READY goes HIGH,
+        // then typewriter pulls it LOW to signal transfer complete.
+        //
         case TS_SO_FIN:
         
-            // ----- TRANSITION: Typewriter released KBRQ -----
-            // Guard: KBRQ fell
-            // Action: Clear flags, signal SO_DONE
-            if (kbrqFalling) {
-                kbrqFalling = false;
-                kbrqRising = false;
+            // ----- TRANSITION: Typewriter set KBRQ LOW-----
+            // Guard: KBRQ fell (ISR set flag) AND KBRQ is currently LOW
+            // Action: Clear flags, signal SO_DONE (keep interrupt enabled for IDLE)
+            if (kbrqFalling && isKBRQLow()) {
+                // Clear ISR-Flags including kbrqRising wich may were set during TS_SO_BUSY
+                clearKBRQFlags();
                 ts->lastWasSI = false;
+                // Keep interrupt enabled for TS_IDLE
                 // Transition State
                 transitionTo(ts, TS_IDLE);
                 return TS_STATUS_SO_DONE;
@@ -680,10 +660,10 @@ TransferStatus pollTransfer(Transfer *ts) {
             
             // ----- TRANSITION: Timeout -----
             // Guard: 100ms elapsed with KBRQ still HIGH
-            // Action: Clear flags, return to idle
-            if (isKBRQHigh() && (now - ts->stateEnteredAt >= 100000)) {
-                kbrqRising = false;
-                kbrqFalling = false;
+            // Action: Clear flags, return to idle (keep interrupt enabled)
+            if (now - ts->stateEnteredAt >= 100000) {
+                clearKBRQFlags();
+                // Keep interrupt enabled for TS_IDLE
                 // Transition State
                 transitionTo(ts, TS_IDLE);
                 return TS_STATUS_TIMEOUT;
@@ -696,6 +676,8 @@ TransferStatus pollTransfer(Transfer *ts) {
         // DEFAULT — Should never happen
         // ------------------------------------------
         default:
+            clearKBRQFlags();
+            enableKBRQInterrupt();
             transitionTo(ts, TS_IDLE);
             return TS_STATUS_IDLE;
     }
