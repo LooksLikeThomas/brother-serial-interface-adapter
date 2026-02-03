@@ -148,6 +148,10 @@ void pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
                 // Typewriter went offline
                 ps->stateEnteredAt = now;
                 ps->state = PS_TW_OFF;
+            }else if (status == TS_STATUS_IDLE && !isTypewriterOnline()) {
+                // Detect silent disconnection while idle
+                ps->stateEnteredAt = now;
+                ps->state = PS_TW_OFF;
             }
             break;
         

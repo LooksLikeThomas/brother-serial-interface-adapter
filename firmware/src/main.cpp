@@ -33,29 +33,27 @@ Protocol ps;    // Protocol layer state
 // ==============================================
 
 void setup() {
-    // Debug output — remove when porting
-    Serial.begin(9600);
-    Serial.println("Ready. Send a byte to transmit.");
-    
     noInterrupts();
     
     // Set up pin directions, pull-ups, and initial states
     setupPins();
     
-    interrupts();
-    
-    // Let hardware settle after pins configured
-    delay(100);
-    
-    noInterrupts();
-    
     // Initialize transfer layer (timer, external interrupts)
+    // Does NOT enable interrupts yet, just configures registers
     transferInit(&ts);
     
     // Initialize protocol layer (state machine)
     protocolInit(&ps);
     
     interrupts();
+    
+    // Let hardware settle AFTER everything is configured
+    // ISRs are now active but state machine is in PS_TW_OFF
+    // which ignores everything except isTypewriterOnline()
+    delay(200);
+    
+    // Clear any flags that accumulated during settle time
+    transferClearFlags();
 }
 
 // ==============================================
@@ -76,6 +74,7 @@ void loop() {
     TransferStatus status = pollTransfer(&ts);
     pollProtocol(&ps, status, &ts);
     
+    /**
     // Echo anything received from typewriter to Serial
     uint8_t byte;
     if (soBufferPop(&byte)) {
@@ -90,4 +89,5 @@ void loop() {
         Serial.print("SI: 0x");
         Serial.println(byte, HEX);
     }
+    */
 }

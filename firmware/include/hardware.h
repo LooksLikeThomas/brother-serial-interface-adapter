@@ -69,13 +69,13 @@ extern "C" {
 // Debug Pin Definitions
 // ==============================================
 
-#define DEBUG_STATE_PORT    PORTB
-#define DEBUG_STATE_DDR     DDRB
-#define DEBUG_STATE_BIT     0       // Pin 8 — toggles on state change
+#define DEBUG_ONLINE_PORT   PORTB
+#define DEBUG_ONLINE_DDR    DDRB
+#define DEBUG_ONLINE_BIT    0       // Pin 8 — toggles on state change
 
-#define DEBUG_FLAG_PORT     PORTB
-#define DEBUG_FLAG_DDR      DDRB
-#define DEBUG_FLAG_BIT      4       // Pin 12 — HIGH when kbrqRising is true
+#define DEBUG_ISR_PORT      PORTB
+#define DEBUG_ISR_DDR       DDRB
+#define DEBUG_ISR_BIT       4       // Pin 12 — toggles on every INT0 fire
 
 #define DEBUG_SI_PORT       PORTB
 #define DEBUG_SI_DDR        DDRB
@@ -147,7 +147,7 @@ extern "C" {
 //   OCR1A = 4µs / 62.5ns = 64
 //
 // Value tuned based on oscilloscope measurements.
-#define TIMER_COMPARE_VALUE 64
+#define TIMER_COMPARE_VALUE 48
 
 // ==============================================
 // Pin State Helpers
@@ -260,16 +260,16 @@ static inline void setupPins() {
     // ==========================================
     
     // Debug pins as outputs
-    DEBUG_STATE_DDR |= (1 << DEBUG_STATE_BIT);  // Pin 8
-    DEBUG_FLAG_DDR  |= (1 << DEBUG_FLAG_BIT);   // Pin 12
-    DEBUG_SI_DDR    |= (1 << DEBUG_SI_BIT);     // Pin 13
-    DEBUG_SO_DDR    |= (1 << DEBUG_SO_BIT);     // Pin 10
+    DEBUG_ONLINE_DDR |= (1 << DEBUG_ONLINE_BIT);    // Pin 8
+    DEBUG_ISR_DDR    |= (1 << DEBUG_ISR_BIT);       // Pin 12
+    DEBUG_SI_DDR     |= (1 << DEBUG_SI_BIT);        // Pin 13
+    DEBUG_SO_DDR     |= (1 << DEBUG_SO_BIT);        // Pin 10
     
     // Initial states LOW
-    DEBUG_STATE_PORT &= ~(1 << DEBUG_STATE_BIT);
-    DEBUG_FLAG_PORT  &= ~(1 << DEBUG_FLAG_BIT);
-    DEBUG_SI_PORT    &= ~(1 << DEBUG_SI_BIT);
-    DEBUG_SO_PORT    &= ~(1 << DEBUG_SO_BIT);
+    DEBUG_ONLINE_PORT &= ~(1 << DEBUG_ONLINE_BIT);
+    DEBUG_ISR_PORT    &= ~(1 << DEBUG_ISR_BIT);
+    DEBUG_SI_PORT     &= ~(1 << DEBUG_SI_BIT);
+    DEBUG_SO_PORT     &= ~(1 << DEBUG_SO_BIT);
 }
 
 #ifdef __cplusplus

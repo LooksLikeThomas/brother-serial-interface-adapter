@@ -127,7 +127,7 @@ static void startBitTransfer(uint8_t byteToSend) {
 //
 static void stopBitTransfer() {
     transferComplete = true;
-    setSIHigh(); // Not protocol but easier to read on scope
+    // setSIHigh(); // Not protocol but easier to read on scope
     enableExternalInterrupts();
 }
 
@@ -175,6 +175,9 @@ static void setupExternalInterrupts() {
     // ----- INT1 (KBACK) — Rising Edge -----
     
     EXT_INT_CONTROL |= (1 << INT1_MODE_BIT1) | (1 << INT1_MODE_BIT0);  // 11 = rising
+
+    // Clear any pending interrupt flags from pin setup transients
+    EIFR |= (1 << INTF0) | (1 << INTF1);
     
     // ----- Enable Both Interrupts -----
     
@@ -271,8 +274,10 @@ ISR(TIMER1_COMPA_vect) {
 // LOW:  Normal idle state
 //
 ISR(INT0_vect) {
+    DEBUG_ISR_PORT ^= (1 << DEBUG_ISR_BIT);
+
     if (isKBRQHigh()) {
-        // KBRQ is HIGH — rising edge
+        // KBRQ is HIGH — rising edge                                                                                                                                                                                                                                                                                                                                                              
         kbrqRising = true;
         kbrqLowSince = 0;
     } else {
@@ -305,6 +310,33 @@ void transferInit(Transfer *ts) {
 }
 
 // ==============================================
+// Public: Clear ISR Flags
+// ==============================================
+//
+// Resets all ISR-set flags to their default state.
+// Call after hardware settle time to discard any
+// spurious edges from pin configuration transients
+// or typewriter power-on noise.
+//
+// Must be called after transferInit() and after
+// any delay used for hardware settling.
+//
+void transferClearFlags() {
+    noInterrupts();
+    kbrqRising = false;
+    kbrqFalling = false;
+    kbackRising = false;
+    siPending = false;
+
+    if (isKBRQLow()) {
+        kbrqLowSince = micros();
+    }else{
+        kbrqLowSince = 0;
+    }
+    interrupts();
+}
+
+// ==============================================
 // Public: Check Typewriter Online
 // ==============================================
 //
@@ -314,7 +346,10 @@ void transferInit(Transfer *ts) {
 //
 bool isTypewriterOnline() {
     uint32_t lowSince = readKbrqLowSince();
-    return (lowSince != 0 && (micros() - lowSince >= 100000));
+    return (lowSince != 0 
+            && (micros() - lowSince >= 1500000)
+            && isKBRQLow()
+            && isSOLow());
 }
 
 // ==============================================
@@ -349,7 +384,8 @@ bool transferQueueSI(Transfer *ts, uint8_t byte) {
 TransferStatus pollTransfer(Transfer *ts) {
     
     uint32_t now = micros();
-    TransferState previousState = ts->state;    // Track for debug pin
+    TransferState previousState = ts->state;
+    TransferStatus status = TS_STATUS_IDLE;
     
     switch (ts->state) {
         
@@ -362,7 +398,7 @@ TransferStatus pollTransfer(Transfer *ts) {
                 kbrqRising = false;
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_SYN;
-                return TS_STATUS_SO_BUSY;
+                status = TS_STATUS_SO_BUSY;
             }
             // Otherwise: Check if protocol layer queued a byte to send
             else if (siPending) {
@@ -371,9 +407,12 @@ TransferStatus pollTransfer(Transfer *ts) {
                 setREADYLow();
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_SYN;
-                return TS_STATUS_SI_BUSY;
+                status = TS_STATUS_SI_BUSY;
             }
-            return TS_STATUS_IDLE;
+            else {
+                status = TS_STATUS_IDLE;
+            }
+            break;
         
         // ==========================================
         // SI Path — Interface (Arduino) Initiates
@@ -389,7 +428,8 @@ TransferStatus pollTransfer(Transfer *ts) {
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_TRANSFER;
             }
-            return TS_STATUS_SI_BUSY;
+            status = TS_STATUS_SI_BUSY;
+            break;
         
         case TS_SI_TRANSFER:
             // Wait for 8-bit transfer to complete
@@ -397,7 +437,8 @@ TransferStatus pollTransfer(Transfer *ts) {
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_BUSY;
             }
-            return TS_STATUS_SI_BUSY;
+            status = TS_STATUS_SI_BUSY;
+            break;
         
         case TS_SI_BUSY:
             // Wait for KBACK to rise (typewriter done processing)
@@ -406,6 +447,7 @@ TransferStatus pollTransfer(Transfer *ts) {
                 kbackRising = false;
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_FIN;
+                status = TS_STATUS_SI_BUSY;
             }
             // Timeout: KBACK still LOW after 5s — typewriter offline
             else if (now - ts->stateEnteredAt >= 5000000) {
@@ -414,9 +456,12 @@ TransferStatus pollTransfer(Transfer *ts) {
                 kbrqFalling = false;
                 setREADYHigh();
                 ts->state = TS_IDLE;
-                return TS_STATUS_TIMEOUT;
+                status = TS_STATUS_TIMEOUT;
             }
-            return TS_STATUS_SI_BUSY;
+            else {
+                status = TS_STATUS_SI_BUSY;
+            }
+            break;
         
         case TS_SI_FIN:
             // Wait ~40µs before releasing READY
@@ -427,9 +472,12 @@ TransferStatus pollTransfer(Transfer *ts) {
                 kbrqRising = false;
                 kbrqFalling = false;
                 ts->state = TS_IDLE;
-                return TS_STATUS_SI_DONE;
+                status = TS_STATUS_SI_DONE;
             }
-            return TS_STATUS_SI_BUSY;
+            else {
+                status = TS_STATUS_SI_BUSY;
+            }
+            break;
         
         // ==========================================
         // SO Path — Typewriter Initiates
@@ -442,7 +490,8 @@ TransferStatus pollTransfer(Transfer *ts) {
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_ACK;
             }
-            return TS_STATUS_SO_BUSY;
+            status = TS_STATUS_SO_BUSY;
+            break;
         
         case TS_SO_ACK:
             // Wait ~200µs after pulling READY LOW
@@ -456,7 +505,8 @@ TransferStatus pollTransfer(Transfer *ts) {
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_TRANSFER;
             }
-            return TS_STATUS_SO_BUSY;
+            status = TS_STATUS_SO_BUSY;
+            break;
         
         case TS_SO_TRANSFER:
             // Wait for 8-bit transfer to complete
@@ -465,7 +515,8 @@ TransferStatus pollTransfer(Transfer *ts) {
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_BUSY;
             }
-            return TS_STATUS_SO_BUSY;
+            status = TS_STATUS_SO_BUSY;
+            break;
         
         case TS_SO_BUSY:
             // Wait ~240µs before releasing READY
@@ -476,7 +527,8 @@ TransferStatus pollTransfer(Transfer *ts) {
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_FIN;
             }
-            return TS_STATUS_SO_BUSY;
+            status = TS_STATUS_SO_BUSY;
+            break;
         
         case TS_SO_FIN:
             // Wait for KBRQ to go LOW (typewriter releases KBRQ)
@@ -485,18 +537,41 @@ TransferStatus pollTransfer(Transfer *ts) {
                 kbrqRising = false;
                 ts->lastWasSI = false;
                 ts->state = TS_IDLE;
-                return TS_STATUS_SO_DONE;
+                status = TS_STATUS_SO_DONE;
             }
             // Timeout: KBRQ still HIGH after 100ms — typewriter offline
             else if (isKBRQHigh() && (now - ts->stateEnteredAt >= 100000)) {
                 kbrqRising = false;
                 kbrqFalling = false;
                 ts->state = TS_IDLE;
-                return TS_STATUS_TIMEOUT;
+                status = TS_STATUS_TIMEOUT;
             }
-            return TS_STATUS_SO_BUSY;
+            status = TS_STATUS_SO_BUSY;
+            break;
     }
     
-    // Should never reach here
-    return TS_STATUS_IDLE;
+    // ==============================================
+    // Debug Pin Updates
+    // ==============================================
+    
+    // State change toggle
+    if (ts->state != previousState) {
+        DEBUG_ONLINE_PORT ^= (1 << DEBUG_ONLINE_BIT);
+    }
+    
+    // SI path active
+    if (ts->state >= TS_SI_SYN && ts->state <= TS_SI_FIN) {
+        DEBUG_SI_PORT |= (1 << DEBUG_SI_BIT);
+    } else {
+        DEBUG_SI_PORT &= ~(1 << DEBUG_SI_BIT);
+    }
+    
+    // SO path active
+    if (ts->state >= TS_SO_SYN && ts->state <= TS_SO_FIN) {
+        DEBUG_SO_PORT |= (1 << DEBUG_SO_BIT);
+    } else {
+        DEBUG_SO_PORT &= ~(1 << DEBUG_SO_BIT);
+    }
+    
+    return status;
 }

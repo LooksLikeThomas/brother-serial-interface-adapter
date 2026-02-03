@@ -108,6 +108,9 @@ typedef struct {
 // Public API
 // ==============================================
 
+// Clear all ISR flags — call after hardware settle to discard startup noise
+void transferClearFlags();
+
 // Initialize transfer layer — sets up timer, external interrupts, initial state
 void transferInit(Transfer *ts);
 
