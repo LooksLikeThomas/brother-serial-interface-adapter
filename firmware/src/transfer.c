@@ -392,161 +392,301 @@ TransferStatus pollTransfer(Transfer *ts) {
         // ==========================================
         // IDLE — Ready for next transfer
         // ==========================================
+        //
+        // Entry: After SI_FIN or SO_FIN completes, or on init
+        // Exit:  KBRQ rises (SO path) or siPending set (SI path)
+        //
         case TS_IDLE:
-            // Priority: Typewriter request first (KBRQ)
+        
+            // ----- TRANSITION: Typewriter requests to send -----
+            // Guard: KBRQ rose
+            // Action: Clear flag, enter SO synchronization
             if (kbrqRising) {
                 kbrqRising = false;
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_SYN;
                 status = TS_STATUS_SO_BUSY;
+                break;
             }
-            // Otherwise: Check if protocol layer queued a byte to send
-            else if (siPending) {
+            
+            // ----- TRANSITION: Protocol layer queued a byte -----
+            // Guard: siPending flag set
+            // Action: Pull READY LOW, enter SI synchronization
+            if (siPending) {
                 siPending = false;
                 dataOut = siPendingByte;
                 setREADYLow();
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_SYN;
                 status = TS_STATUS_SI_BUSY;
+                break;
             }
-            else {
-                status = TS_STATUS_IDLE;
-            }
+            
+            // No transition
+            status = TS_STATUS_IDLE;
             break;
         
         // ==========================================
         // SI Path — Interface (Arduino) Initiates
         // ==========================================
         
+        // ------------------------------------------
+        // TS_SI_SYN — Synchronization delay
+        // ------------------------------------------
+        //
+        // Entry: READY just pulled LOW, byte ready in dataOut
+        // Exit:  ~30µs elapsed
+        //
         case TS_SI_SYN:
-            // Wait ~30µs after pulling READY LOW
+        
+            // ----- TRANSITION: Sync delay elapsed -----
+            // Guard: 30µs since READY went LOW
+            // Action: Start 8-bit transfer via timer ISR
             if (now - ts->stateEnteredAt >= 30) {
-                // Clear flag BEFORE transfer (defensive)
                 kbackRising = false;
-                // Start 8-bit transfer
                 startBitTransfer(dataOut);
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_TRANSFER;
+                status = TS_STATUS_SI_BUSY;
+                break;
             }
+            
+            // No transition
             status = TS_STATUS_SI_BUSY;
             break;
         
+        // ------------------------------------------
+        // TS_SI_TRANSFER — 8-bit transfer in progress
+        // ------------------------------------------
+        //
+        // Entry: Timer ISR clocking bits out on SI
+        // Exit:  transferComplete flag set by ISR
+        //
         case TS_SI_TRANSFER:
-            // Wait for 8-bit transfer to complete
+        
+            // ----- TRANSITION: Transfer complete -----
+            // Guard: transferComplete flag set
+            // Action: Enter KBACK wait state
             if (transferComplete) {
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_BUSY;
+                status = TS_STATUS_SI_BUSY;
+                break;
             }
+            
+            // No transition
             status = TS_STATUS_SI_BUSY;
             break;
         
+        // ------------------------------------------
+        // TS_SI_BUSY — Waiting for typewriter acknowledgment
+        // ------------------------------------------
+        //
+        // Entry: 8-bit transfer complete
+        // Exit:  KBACK rises (100µs–5s) or 5s timeout
+        //
         case TS_SI_BUSY:
-            // Wait for KBACK to rise (typewriter done processing)
-            // Can take 100µs to 5s (carriage return while buffer full)
+        
+            // ----- TRANSITION: Typewriter acknowledged -----
+            // Guard: KBACK rose
+            // Action: Enter finalization delay
             if (kbackRising) {
                 kbackRising = false;
                 ts->stateEnteredAt = now;
                 ts->state = TS_SI_FIN;
                 status = TS_STATUS_SI_BUSY;
+                break;
             }
-            // Timeout: KBACK still LOW after 5s — typewriter offline
-            else if (now - ts->stateEnteredAt >= 5000000) {
+            
+            // ----- TRANSITION: Timeout -----
+            // Guard: 5s elapsed without KBACK
+            // Action: Release READY, return to idle
+            if (now - ts->stateEnteredAt >= 5000000) {
                 kbackRising = false;
                 kbrqRising = false;
                 kbrqFalling = false;
                 setREADYHigh();
                 ts->state = TS_IDLE;
                 status = TS_STATUS_TIMEOUT;
+                break;
             }
-            else {
-                status = TS_STATUS_SI_BUSY;
-            }
+            
+            // No transition
+            status = TS_STATUS_SI_BUSY;
             break;
         
+        // ------------------------------------------
+        // TS_SI_FIN — Finalization delay
+        // ------------------------------------------
+        //
+        // Entry: KBACK rose
+        // Exit:  ~40µs elapsed → SI_DONE (one-shot)
+        //
         case TS_SI_FIN:
-            // Wait ~40µs before releasing READY
+        
+            // ----- TRANSITION: Finalization complete -----
+            // Guard: 40µs since KBACK rose
+            // Action: Release READY, clear flags, signal SI_DONE
             if (now - ts->stateEnteredAt >= 40) {
                 setREADYHigh();
                 ts->lastWasSI = true;
-                // Clear KBRQ flags (READY release can cause transients)
                 kbrqRising = false;
                 kbrqFalling = false;
                 ts->state = TS_IDLE;
                 status = TS_STATUS_SI_DONE;
+                break;
             }
-            else {
-                status = TS_STATUS_SI_BUSY;
-            }
+            
+            // No transition
+            status = TS_STATUS_SI_BUSY;
             break;
         
         // ==========================================
         // SO Path — Typewriter Initiates
         // ==========================================
         
+        // ------------------------------------------
+        // TS_SO_SYN — Synchronization delay
+        // ------------------------------------------
+        //
+        // Entry: KBRQ rose
+        // Exit:  ~100µs elapsed
+        //
         case TS_SO_SYN:
-            // Wait ~100µs after KBRQ rose
+        
+            // ----- TRANSITION: Sync delay elapsed -----
+            // Guard: 100µs since KBRQ rose
+            // Action: Pull READY LOW to acknowledge
             if (now - ts->stateEnteredAt >= 100) {
                 setREADYLow();
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_ACK;
+                status = TS_STATUS_SO_BUSY;
+                break;
             }
+            
+            // No transition
             status = TS_STATUS_SO_BUSY;
             break;
         
+        // ------------------------------------------
+        // TS_SO_ACK — Acknowledge delay
+        // ------------------------------------------
+        //
+        // Entry: READY just pulled LOW
+        // Exit:  ~200µs elapsed
+        //
         case TS_SO_ACK:
-            // Wait ~200µs after pulling READY LOW
+        
+            // ----- TRANSITION: Ack delay elapsed -----
+            // Guard: 200µs since READY went LOW
+            // Action: Start transfer (DEL on direction change, else 0xFF)
             if (now - ts->stateEnteredAt >= 200) {
-                // Send DEL on direction change, 0xFF for consecutive SO
                 if (ts->lastWasSI) {
-                    startBitTransfer(0x7F);   // Direction changed, send DEL
+                    startBitTransfer(0x7F);
                 } else {
-                    startBitTransfer(0xFF);   // Consecutive SO, keep SI HIGH
+                    startBitTransfer(0xFF);
                 }
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_TRANSFER;
+                status = TS_STATUS_SO_BUSY;
+                break;
             }
+            
+            // No transition
             status = TS_STATUS_SO_BUSY;
             break;
         
+        // ------------------------------------------
+        // TS_SO_TRANSFER — 8-bit transfer in progress
+        // ------------------------------------------
+        //
+        // Entry: Timer ISR clocking bits in from SO
+        // Exit:  transferComplete flag set by ISR
+        //
         case TS_SO_TRANSFER:
-            // Wait for 8-bit transfer to complete
+        
+            // ----- TRANSITION: Transfer complete -----
+            // Guard: transferComplete flag set
+            // Action: Store received byte, enter post-transfer delay
             if (transferComplete) {
-                ts->receivedByte = dataIn;  // Store received byte for protocol layer
+                ts->receivedByte = dataIn;
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_BUSY;
+                status = TS_STATUS_SO_BUSY;
+                break;
             }
+            
+            // No transition
             status = TS_STATUS_SO_BUSY;
             break;
         
+        // ------------------------------------------
+        // TS_SO_BUSY — Post-transfer delay
+        // ------------------------------------------
+        //
+        // Entry: 8-bit transfer complete, byte stored
+        // Exit:  ~240µs elapsed
+        //
         case TS_SO_BUSY:
-            // Wait ~240µs before releasing READY
+        
+            // ----- TRANSITION: Post-transfer delay elapsed -----
+            // Guard: 240µs since transfer completed
+            // Action: Release READY, wait for KBRQ to fall
             if (now - ts->stateEnteredAt >= 240) {
                 setREADYHigh();
-                // This triggers kbrqRising as READY release lets KBRQ float HIGH briefly
-                // We clear it in TS_SO_FIN
                 ts->stateEnteredAt = now;
                 ts->state = TS_SO_FIN;
+                status = TS_STATUS_SO_BUSY;
+                break;
             }
+            
+            // No transition
             status = TS_STATUS_SO_BUSY;
             break;
         
+        // ------------------------------------------
+        // TS_SO_FIN — Wait for KBRQ release
+        // ------------------------------------------
+        //
+        // Entry: READY released
+        // Exit:  KBRQ falls → SO_DONE (one-shot), or 100ms timeout
+        //
         case TS_SO_FIN:
-            // Wait for KBRQ to go LOW (typewriter releases KBRQ)
+        
+            // ----- TRANSITION: Typewriter released KBRQ -----
+            // Guard: KBRQ fell
+            // Action: Clear flags, signal SO_DONE
             if (kbrqFalling) {
                 kbrqFalling = false;
                 kbrqRising = false;
                 ts->lastWasSI = false;
                 ts->state = TS_IDLE;
                 status = TS_STATUS_SO_DONE;
+                break;
             }
-            // Timeout: KBRQ still HIGH after 100ms — typewriter offline
-            else if (isKBRQHigh() && (now - ts->stateEnteredAt >= 100000)) {
+            
+            // ----- TRANSITION: Timeout -----
+            // Guard: 100ms elapsed with KBRQ still HIGH
+            // Action: Clear flags, return to idle
+            if (isKBRQHigh() && (now - ts->stateEnteredAt >= 100000)) {
                 kbrqRising = false;
                 kbrqFalling = false;
                 ts->state = TS_IDLE;
                 status = TS_STATUS_TIMEOUT;
+                break;
             }
+            
+            // No transition
             status = TS_STATUS_SO_BUSY;
+            break;
+        
+        // ------------------------------------------
+        // DEFAULT — Should never happen
+        // ------------------------------------------
+        default:
+            ts->state = TS_IDLE;
+            status = TS_STATUS_IDLE;
             break;
     }
     
