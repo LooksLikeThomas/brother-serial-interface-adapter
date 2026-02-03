@@ -220,6 +220,7 @@ static inline void transitionTo(Transfer *ts, TransferState newState) {
     }
 }
 
+
 // ==============================================
 // Timer1 Compare Match ISR — Clocks One Bit
 // ==============================================
@@ -231,63 +232,64 @@ static inline void transitionTo(Transfer *ts, TransferState newState) {
 //
 // Timeline for one byte transfer:
 //
-// ISR #  | Action
-// -------|------------------------------------------
-//    1   | SCK HIGH→LOW, set bit 7 on SI, restart
-//    2   | SCK LOW→HIGH, read bit 7 from SO, restart
-//    3   | SCK HIGH→LOW, set bit 6 on SI, restart
-//    4   | SCK LOW→HIGH, read bit 6 from SO, restart
-//   ...  | ...
-//   15   | SCK HIGH→LOW, set bit 0 on SI, restart
-//   16   | SCK LOW→HIGH, read bit 0 from SO, DONE
+// ISR #  | Phase   | Action
+// -------|---------|------------------------------------------
+//    1   | FALLING | set bit 7 on SI, SCK HIGH→LOW, restart
+//    2   | RISING  | read bit 7 from SO, SCK LOW→HIGH, restart
+//    3   | FALLING | set bit 6 on SI, SCK HIGH→LOW, restart
+//    4   | RISING  | read bit 6 from SO, SCK LOW→HIGH, restart
+//   ...  | ...     | ...
+//   15   | FALLING | set bit 0 on SI, SCK HIGH→LOW, restart
+//   16   | RISING  | read bit 0 from SO, SCK LOW→HIGH, bitIndex=8, restart
+//   17   | FALLING | bitIndex>=8, stopBitTransfer, return (SCK stays HIGH)
 //
 ISR(TIMER1_COMPA_vect) {
     // TIMER_COUNTER reached TIMER_COMPARE_VALUE so we stop and reset the TIMER
     stopTransferTimer();
-    
+
+    // Transfer complete — all 8 bits done, last bit held for one half-period
+    if (bitIndex >= 8) {
+        stopBitTransfer();
+        return;
+    }
+
     if (clockPhase) {
-        
         // ===================
         // FALLING EDGE
         // ===================
-        // Action: Pull SCK low and toggle Phase-Flag
-        setSCKLow();
-        clockPhase = false;
         
-        // Action: Set outgoing bit on SI
+        // Action: SCK and SI with minimal cycles between transitions.
+        // The compare is done before toggling to keep SCK-SI timing tight.
         if (dataOut & (0x80 >> bitIndex)) {
+            setSCKLow();
             setSIHigh();
         } else {
+            setSCKLow();
             setSILow();
         }
-        
-        // Start Timer for low phase
-        startTransferTimer();
+
     } else {
         // ===================
         // RISING EDGE
         // ===================
-        // Action: Pull SCK HIGH and toggle Phase-Flag
+
+        // Action: Pull SCK HIGH and Read bit from SO
         setSCKHigh();
-        clockPhase = true;
-        
-        // Read bit from SO
         if (isSOHigh()) {
             dataIn |= (0x80 >> bitIndex);
         } // If SO is LOW, bit stays 0 (dataIn was initialized to 0)
-        
+
         // Move to next bit
         bitIndex++;
-        
-        if (bitIndex < 8) {
-            // More bits to transfer, restart timer
-            startTransferTimer();
-        } else {
-            // Done! Keep timer stopped
-            stopBitTransfer();
-        }
     }
+
+    // Toggle Phase-Flag
+    clockPhase = !clockPhase;
+    
+    // Restart timer for low phase
+    startTransferTimer();
 }
+
 
 // ==============================================
 // External Interrupt Service Routines
