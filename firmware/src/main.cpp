@@ -20,12 +20,13 @@
 #include "buffers.h"
 #include "transfer.h"
 #include "protocol.h"
+#include "debug.h"
 
 // ==============================================
 // Global State
 // ==============================================
 
-Transfer ts;    // Transfer layer state
+
 Protocol ps;    // Protocol layer state
 
 // ==============================================
@@ -33,25 +34,21 @@ Protocol ps;    // Protocol layer state
 // ==============================================
 
 void setup() {
-    noInterrupts();
-    
-    // Set up pin directions, pull-ups, and initial states
+    // Set up pins 
     setupPins();
+
+    // wait for everything to settle
+    delay(100);
     
-    // Initialize transfer layer (timer, KBRQ interrupt)
-    // Configures everything and enables KBRQ interrupt,
-    // but ISRs won't fire until interrupts() is called
-    transferInit(&ts);
+    // Initialize debug system (sets up Serial at 115200)
+    // Must be done with interrupts enabled
+    DBG_INIT();
     
     // Initialize protocol layer (state machine)
+    // Transfer layer will be initialized when typewriter powers on
     protocolInit(&ps);
     
-    // Let hardware settle with interrupts disabled
-    // No spurious ISR flags can accumulate during this time
-    delay(200);
-    
-    // Now enable interrupts — system is ready
-    interrupts();
+    DBG_EVENT("SETUP_COMPLETE");
 }
 
 // ==============================================
@@ -70,10 +67,9 @@ void setup() {
 //
 void loop() {
     // Run state machines
-    TransferStatus status = pollTransfer(&ts);
-    pollProtocol(&ps, status, &ts);
+    pollProtocol(&ps);
     
-    /**
+    
     // Echo anything received from typewriter to Serial
     uint8_t byte;
     if (soBufferPop(&byte)) {
@@ -88,5 +84,4 @@ void loop() {
         Serial.print("SI: 0x");
         Serial.println(byte, HEX);
     }
-    */
 }
