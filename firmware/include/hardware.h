@@ -5,6 +5,14 @@
 // All hardware-specific definitions for ATmega328P.
 // Change these when porting to different hardware.
 //
+// Signal lines use a hybrid approach:
+//   Idle:        High-Z (prevents backfeeding when typewriter is off)
+//   Transmitting: Push-pull (fast, clean edges)
+//
+// This gives us the best of both worlds:
+//   - No phantom powering of typewriter when it's off
+//   - Clean, fast signals during communication
+//
 #ifndef HARDWARE_H
 #define HARDWARE_H
 
@@ -64,6 +72,14 @@ extern "C" {
 #define KBACK_PIN       PIND    // Pin register for reading
 #define KBACK_DDR       DDRD    // Data direction register
 #define KBACK_BIT       3       // Bit position (pin 3 = PORTD bit 3)
+
+// POWER Typewriter Power Detection — Connected to typewriter 5V rail via voltage divider
+// HIGH = typewriter powered on, LOW = typewriter off/disconnected
+#define PIN_POWER       7       // Arduino pin number
+#define POWER_PORT      PORTD   // Port register for writing
+#define POWER_PIN       PIND    // Pin register for reading
+#define POWER_DDR       DDRD    // Data direction register
+#define POWER_BIT       7       // Bit position (pin 7 = PORTD bit 7)
 
 // ==============================================
 // Debug Pin Definitions
@@ -150,38 +166,81 @@ extern "C" {
 #define TIMER_COMPARE_VALUE 48
 
 // ==============================================
-// Pin State Helpers
+// Pin State Helpers — Hybrid Push-Pull / High-Z
 // ==============================================
 //
-// Inline functions for clean, readable pin state checks.
-// Compiler optimizes these to direct port reads.
+// We use two modes:
+//
+// 1. High-Z (idle state):
+//    - DDR=0, PORT=0 → Input, no pull-up, pin floats
+//    - Used when idle to prevent backfeeding
+//    - Typewriter's pull-ups pull lines HIGH when powered
+//    - When typewriter is off, lines float → no current flow
+//
+// 2. Push-Pull (active transmission):
+//    - DDR=1, PORT=0/1 → Output, actively driven LOW/HIGH
+//    - Used during transmission for fast, clean edges
+//    - Returns to High-Z after transmission completes
+//
+// Functions:
+//   setSCKHigh()      - Push-pull HIGH (use in ISR during transmission)
+//   setSCKLow()       - Push-pull LOW (use in ISR during transmission)
+//   setSCKHighZ()     - High-Z, let pull-up pull HIGH (use when idle)
 //
 
 // ----- SCK (Clock) -----
 static inline bool isSCKHigh() {
     return SCK_PIN & (1 << SCK_BIT);
 }
+
 static inline bool isSCKLow() {
     return !(SCK_PIN & (1 << SCK_BIT));
 }
+
 static inline void setSCKHigh() {
-    SCK_PORT |= (1 << SCK_BIT);
+    // Push-pull: actively drive HIGH
+    // Use during transmission for fast edges
+    SCK_PORT |= (1 << SCK_BIT);    // PORT=1 (HIGH)
+    SCK_DDR |= (1 << SCK_BIT);     // Output mode
 }
+
 static inline void setSCKLow() {
-    SCK_PORT &= ~(1 << SCK_BIT);
+    // Push-pull: actively drive LOW
+    SCK_PORT &= ~(1 << SCK_BIT);   // PORT=0 (LOW)
+    SCK_DDR |= (1 << SCK_BIT);     // Output mode
+}
+
+static inline void setSCKHighZ() {
+    // High-Z: release the line, let external pull-up pull HIGH
+    // Use when idle to prevent backfeeding
+    SCK_DDR &= ~(1 << SCK_BIT);    // Input mode (High-Z)
+    SCK_PORT &= ~(1 << SCK_BIT);   // No internal pull-up
 }
 
 // ----- SI (Signal In — we send to typewriter) -----
 static inline bool isSIHigh() {
     return SI_PIN & (1 << SI_BIT);
 }
+
 static inline bool isSILow() {
     return !(SI_PIN & (1 << SI_BIT));
 }
+
 static inline void setSIHigh() {
+    // Push-pull: actively drive HIGH
     SI_PORT |= (1 << SI_BIT);
+    SI_DDR |= (1 << SI_BIT);
 }
+
 static inline void setSILow() {
+    // Push-pull: actively drive LOW
+    SI_PORT &= ~(1 << SI_BIT);
+    SI_DDR |= (1 << SI_BIT);
+}
+
+static inline void setSIHighZ() {
+    // High-Z: release the line
+    SI_DDR &= ~(1 << SI_BIT);
     SI_PORT &= ~(1 << SI_BIT);
 }
 
@@ -189,6 +248,7 @@ static inline void setSILow() {
 static inline bool isSOHigh() {
     return SO_PIN & (1 << SO_BIT);
 }
+
 static inline bool isSOLow() {
     return !(SO_PIN & (1 << SO_BIT));
 }
@@ -197,13 +257,26 @@ static inline bool isSOLow() {
 static inline bool isREADYHigh() {
     return READY_PIN & (1 << READY_BIT);
 }
+
 static inline bool isREADYLow() {
     return !(READY_PIN & (1 << READY_BIT));
 }
+
 static inline void setREADYHigh() {
+    // Push-pull: actively drive HIGH
     READY_PORT |= (1 << READY_BIT);
+    READY_DDR |= (1 << READY_BIT);
 }
+
 static inline void setREADYLow() {
+    // Push-pull: actively drive LOW
+    READY_PORT &= ~(1 << READY_BIT);
+    READY_DDR |= (1 << READY_BIT);
+}
+
+static inline void setREADYHighZ() {
+    // High-Z: release the line
+    READY_DDR &= ~(1 << READY_BIT);
     READY_PORT &= ~(1 << READY_BIT);
 }
 
@@ -211,6 +284,7 @@ static inline void setREADYLow() {
 static inline bool isKBRQHigh() {
     return KBRQ_PIN & (1 << KBRQ_BIT);
 }
+
 static inline bool isKBRQLow() {
     return !(KBRQ_PIN & (1 << KBRQ_BIT));
 }
@@ -219,8 +293,14 @@ static inline bool isKBRQLow() {
 static inline bool isKBACKHigh() {
     return KBACK_PIN & (1 << KBACK_BIT);
 }
+
 static inline bool isKBACKLow() {
     return !(KBACK_PIN & (1 << KBACK_BIT));
+}
+
+// ----- POWER (Typewriter power detection) -----
+static inline bool isTypewriterPowered() {
+    return POWER_PIN & (1 << POWER_BIT);
 }
 
 // ==============================================
@@ -247,39 +327,56 @@ static inline void disableKBRQInterrupt() {
 // Pin Configuration
 // ==============================================
 //
-// Sets pin directions (DDR), initial states, pull-ups,
-// and debug pin configuration.
+// All signal pins start in High-Z mode (DDR=0, PORT=0).
+// This prevents backfeeding when typewriter is off.
+// During transmission, we switch to push-pull for clean signals.
 //
 static inline void setupPins() {
     // ==========================================
-    // Pin direction setup using DDR registers
+    // Output pins: Start in High-Z mode
     // ==========================================
-    // DDR = Data Direction Register
-    // 1 = output, 0 = input
+    // Typewriter's pull-ups will pull these HIGH when powered.
+    // We switch to push-pull during active transmission.
     
-    SCK_DDR |= (1 << SCK_BIT);        // SCK as output
-    SI_DDR  |= (1 << SI_BIT);         // SI as output
-    SO_DDR  &= ~(1 << SO_BIT);        // SO as input
-    READY_DDR |= (1 << READY_BIT);    // READY as output
-    KBRQ_DDR  &= ~(1 << KBRQ_BIT);    // KBRQ as input
-    KBACK_DDR &= ~(1 << KBACK_BIT);   // KBACK as input
+    SCK_DDR &= ~(1 << SCK_BIT);     // SCK High-Z
+    SCK_PORT &= ~(1 << SCK_BIT);    // No pull-up
     
-    // ==========================================
-    // Initial pin states & Enable internal pull-ups
-    // ==========================================
+    SI_DDR &= ~(1 << SI_BIT);       // SI High-Z
+    SI_PORT &= ~(1 << SI_BIT);      // No pull-up
     
-    SCK_PORT |= (1 << SCK_BIT);       // SCK HIGH (idle state)
-    SI_PORT  |= (1 << SI_BIT);        // SI HIGH (pull-up / idle)
-    SO_PORT  |= (1 << SO_BIT);        // SO pull-up enabled
-    READY_PORT |= (1 << READY_BIT);   // READY HIGH (idle)
-    KBRQ_PORT  |= (1 << KBRQ_BIT);    // KBRQ pull-up enabled
-    KBACK_PORT |= (1 << KBACK_BIT);   // KBACK pull-up enabled
+    READY_DDR &= ~(1 << READY_BIT); // READY High-Z
+    READY_PORT &= ~(1 << READY_BIT);// No pull-up
     
     // ==========================================
-    // Debug Pin direction setup and initial states
+    // Input pins: High-Z, no pull-up
     // ==========================================
+    // Typewriter has internal pull-ups on these lines.
+    // No Arduino pull-ups to avoid backfeeding.
     
-    // Debug pins as outputs
+    SO_DDR &= ~(1 << SO_BIT);       // SO as input
+    SO_PORT &= ~(1 << SO_BIT);      // No pull-up
+    
+    KBRQ_DDR &= ~(1 << KBRQ_BIT);   // KBRQ as input
+    KBRQ_PORT &= ~(1 << KBRQ_BIT);  // No pull-up
+    
+    KBACK_DDR &= ~(1 << KBACK_BIT); // KBACK as input
+    KBACK_PORT &= ~(1 << KBACK_BIT);// No pull-up
+    
+    // ==========================================
+    // Power detection: Input, no pull-up
+    // ==========================================
+    // Connected via external voltage divider.
+    // No pull-up — read actual voltage from divider.
+    
+    POWER_DDR &= ~(1 << POWER_BIT);
+    POWER_PORT &= ~(1 << POWER_BIT);
+    
+    // ==========================================
+    // Debug pins: Normal push-pull outputs
+    // ==========================================
+    // These are only connected to oscilloscope/LEDs,
+    // not to typewriter, so backfeeding is not a concern.
+    
     DEBUG_ONLINE_DDR |= (1 << DEBUG_ONLINE_BIT);    // Pin 8
     DEBUG_ISR_DDR    |= (1 << DEBUG_ISR_BIT);       // Pin 12
     DEBUG_SI_DDR     |= (1 << DEBUG_SI_BIT);        // Pin 13
