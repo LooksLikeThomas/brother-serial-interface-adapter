@@ -22,6 +22,29 @@
 #include <Arduino.h>
 
 // ==============================================
+// Timer Interrupt Helpers
+// ==============================================
+//
+// These helpers gate the Timer1 Compare Match interrupt.
+// By disabling the interrupt mask during idle periods, we 
+// prevent stale interrupt flags from triggering "ghost"
+// transfers before we are ready.
+//
+static inline void enableTimerISR() {
+    // Clear any pending compare match flag by writing a 1 to it.
+    // This ensures the ISR doesn't fire the instant we enable the mask.
+    TIFR1 |= (1 << OCF1A); 
+    
+    // Enable Timer1 Compare Match A Interrupt
+    TIMER_INT_MASK |= (1 << TIMER_INT_ENABLE);
+}
+
+static inline void disableTimerISR() {
+    // Disable Timer1 Compare Match A Interrupt
+    TIMER_INT_MASK &= ~(1 << TIMER_INT_ENABLE);
+}
+
+// ==============================================
 // Transfer Timer Control
 // ==============================================
 
@@ -96,6 +119,8 @@ static void startBitTransfer(uint8_t byteToSend) {
     transferComplete = false;
     clockPhase = true;
     
+    // Enable the ISR and start the hardware timer
+    enableTimerISR();
     startTransferTimer();
     
     interrupts();
@@ -112,6 +137,12 @@ static void startBitTransfer(uint8_t byteToSend) {
 //
 static void stopBitTransfer() {
     transferComplete = true;
+
+    // Disable interrupt
+    disableTimerISR();
+
+    setSCKHighZ();   // Back to High-Z
+    setSIHighZ();    // Back to High-Z
 }
 
 // ==============================================
@@ -121,10 +152,8 @@ static void stopBitTransfer() {
 // Timer1 is a 16-bit counter that counts up.
 // In CTC mode, we set a target (OCR1A). When counter hits target:
 //   1. Counter resets to 0
-//   2. Interrupt fires
+//   2. Interrupt fires (if enabled)
 //   3. ISR stops timer, toggles SCK, restarts timer
-//
-// This "one-shot" approach prevents extra clock pulses if ISR is delayed.
 //
 static void setupTransferTimer() {
     // Disable pin toggle mode (we toggle SCK manually)
@@ -139,8 +168,8 @@ static void setupTransferTimer() {
     // Reset counter
     TIMER_COUNTER = 0;
     
-    // Enable compare match interrupt
-    TIMER_INT_MASK = (1 << TIMER_INT_ENABLE);
+    // Ensure interrupt is disabled during setup
+    disableTimerISR();
 }
 
 // ==============================================
@@ -313,23 +342,34 @@ void transferInit(Transfer *ts) {
     enableKBRQInterrupt();
 }
 
+
 // ==============================================
-// Public: Check Typewriter Online
+// Public: Deinitialize Transfer Layer
 // ==============================================
 //
-// TODO: This will be replaced with a dedicated 5V power
-// detection pin for reliable online/offline detection.
+// Stops all transfer activity and returns to TS_NOT_INIT.
+// Call when typewriter loses power or on error.
 //
-// Current implementation checks signal states as a proxy:
-//   - KBRQ LOW: typewriter not requesting to send
-//   - SO LOW: typewriter not mid-transmission
-//
-// This is unreliable because pull-ups can make signals
-// appear valid even when typewriter is disconnected.
-//
-bool isTypewriterOnline() {
-    return isKBRQLow() && isSOLow();
+void transferDeinit(Transfer *ts) {
+    // Stop timer
+    stopTransferTimer();
+    
+    // Disable interrupt
+    disableKBRQInterrupt();
+    
+    // Put hardware in safe state
+    // setREADYHigh();
+    // setSCKHigh();
+    
+    // Clear flags
+    clearKBRQFlags();
+    siPending = false;
+    transferComplete = false;
+    
+    // Back to not initialized
+    ts->state = TS_NOT_INIT;
 }
+
 
 // ==============================================
 // Public: Request SI Transfer
@@ -373,6 +413,16 @@ TransferStatus pollTransfer(Transfer *ts) {
     uint32_t now = micros();
     
     switch (ts->state) {
+
+        // ==========================================
+        // NOT_INIT — Waiting for transferInit()
+        // ==========================================
+        //
+        // Entry: After protocolInit(), before transferInit()
+        // Exit:  transferInit() called
+        //
+        case TS_NOT_INIT:
+            return TS_STATUS_NOT_INIT;
         
         // ==========================================
         // IDLE — Ready for next transfer
@@ -434,9 +484,11 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Guard: 30µs since READY went LOW
             // Action: Start 8-bit transfer via timer ISR
             if (now - ts->stateEnteredAt >= 30) {
-                startBitTransfer(dataOut);
                 // Transition State
                 transitionTo(ts, TS_SI_TRANSFER);
+                // Start Bit Transfer
+                startBitTransfer(dataOut);
+                
                 return TS_STATUS_SI_BUSY;
             }
             
@@ -565,13 +617,14 @@ TransferStatus pollTransfer(Transfer *ts) {
             // Guard: 200µs since READY went LOW
             // Action: Start transfer (DEL on direction change, else 0xFF)
             if (now - ts->stateEnteredAt >= 200) {
+                // Transition State first for better timing
+                transitionTo(ts, TS_SO_TRANSFER);
+
                 if (ts->lastWasSI) {
                     startBitTransfer(0x7F);
                 } else {
                     startBitTransfer(0xFF);
                 }
-                // Transition State
-                transitionTo(ts, TS_SO_TRANSFER);
                 return TS_STATUS_SO_BUSY;
             }
             
@@ -610,9 +663,9 @@ TransferStatus pollTransfer(Transfer *ts) {
         case TS_SO_BUSY:
         
             // ----- TRANSITION: Post-transfer delay elapsed -----
-            // Guard: 240µs since transfer completed
+            // Guard: 100µs since transfer completed
             // Action: Enable interrupt, release READY, wait for KBRQ to fall
-            if (now - ts->stateEnteredAt >= 240) {
+            if (now - ts->stateEnteredAt >= 100) {
                 // Enable interrupt and clear flags BEFORE releasing READY.
                 // Per protocol: KBRQ rises briefly with READY, then typewriter
                 // pulls it LOW again. We need to catch that falling edge.
@@ -667,7 +720,7 @@ TransferStatus pollTransfer(Transfer *ts) {
             // No transition
             return TS_STATUS_SO_BUSY;
 
-            
+
         // ==========================================
         // ERROR — Waiting for protocol layer to reset
         // ==========================================

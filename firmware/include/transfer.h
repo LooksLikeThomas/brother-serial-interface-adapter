@@ -35,6 +35,10 @@ extern "C" {
 // it uses TransferStatus instead.
 //
 typedef enum {
+    // ----- Not Initialized -----
+    
+    TS_NOT_INIT,        // Not initialized, waiting for transferInit()
+
     // ----- Idle -----
     
     TS_IDLE,            // Ready for next transfer
@@ -86,6 +90,7 @@ typedef enum {
 // would be needed.
 //
 typedef enum {
+    TS_STATUS_NOT_INIT,     // Transfer layer not initialized
     TS_STATUS_IDLE,         // Nothing happening, ready for SI request
     TS_STATUS_SI_BUSY,      // SI path in progress
     TS_STATUS_SI_DONE,      // SI path completed successfully
@@ -119,16 +124,15 @@ void transferClearFlags();
 // Initialize transfer layer — sets up timer, external interrupts, initial state
 void transferInit(Transfer *ts);
 
+// Deinitialize transfer layer — stops timer, disables interrupts, returns to TS_NOT_INIT
+void transferDeinit(Transfer *ts);
+
 // Run the transfer state machine — call every loop iteration
 // Returns current status for the protocol layer to act on
 TransferStatus pollTransfer(Transfer *ts);
 
 // Request an SI transfer — only call when status is TS_STATUS_IDLE
 bool transferQueueSI(Transfer *ts, uint8_t byte);
-
-// Check if typewriter is online (KBRQ stable LOW for 100ms)
-// Uses ISR data internally, protocol layer doesn't touch hardware
-bool isTypewriterOnline();
 
 #ifdef __cplusplus
 }
