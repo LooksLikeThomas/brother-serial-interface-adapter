@@ -73,15 +73,20 @@ void loop() {
     // Echo anything received from typewriter to Serial
     uint8_t byte;
     if (soBufferPop(&byte)) {
-        Serial.print("SO: 0x");
-        Serial.println(byte, HEX);
+        if (!DEBUG_ENABLED){
+            DBG_EVENT("SERIAL SEND");
+            DBG_EVENT(DBG_B_TO_HEX(byte));
+        }else{
+            Serial.print(byte);
+        }
     }
     
     // Send anything received from Serial to typewriter
     if (Serial.available()) {
+        DBG_EVENT("SERIAL RECEIVED");
+        DBG_EVENT(DBG_B_TO_HEX(byte));
+        
         byte = Serial.read();
         siBufferPush(byte);
-        Serial.print("SI: 0x");
-        Serial.println(byte, HEX);
     }
 }

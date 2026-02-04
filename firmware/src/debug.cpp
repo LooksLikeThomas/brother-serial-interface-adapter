@@ -1,23 +1,12 @@
 // ==============================================
 // debug.cpp — Debug Logging Implementation
 // ==============================================
-//
-// Buffered debug output that won't interfere with
-// timing-critical transfer operations.
-//
-// Messages are accumulated in a ring buffer and only
-// sent over Serial when the transfer layer is idle.
-//
-// Note: This is a .cpp file to access Arduino's Serial class.
-//
 #include "debug.h"
 
 #if DEBUG_ENABLED
 
 #include <Arduino.h>
 #include <string.h>
-
-// Include these for the enum definitions (used in name lookup tables)
 #include "transfer.h"
 #include "protocol.h"
 
@@ -25,14 +14,13 @@
 // Buffer Configuration
 // ==============================================
 
-#define DEBUG_BUFFER_SIZE 256
+#define DEBUG_BUFFER_SIZE 512
 
 static char debugBuffer[DEBUG_BUFFER_SIZE];
 static volatile uint16_t bufferHead = 0;  // Write position
 static volatile bool overflowOccurred = false;
-static volatile uint32_t lastLogTime = 0;  // micros() of last log entry
+static volatile uint32_t lastLogTime = 0;
 
-// Overflow message appended on flush if overflow occurred
 static const char OVERFLOW_MSG[] = "[OVERFLOW]\n";
 
 // ==============================================
@@ -71,30 +59,22 @@ static const char* getTransferStatusName(TransferStatus status) {
 // Buffer Management
 // ==============================================
 
-// Append a string to the buffer, set overflow flag if full
 static void bufferAppend(const char* str) {
     uint16_t len = strlen(str);
-    
-    // Check if we have room (leave space for potential overflow message later)
     if (bufferHead + len >= DEBUG_BUFFER_SIZE - sizeof(OVERFLOW_MSG)) {
         overflowOccurred = true;
         return;
     }
-    
-    // Copy string to buffer
     memcpy(&debugBuffer[bufferHead], str, len);
     bufferHead += len;
 }
 
-// Append a number to the buffer (for timestamps)
 static void bufferAppendNumber(uint32_t num) {
     char numStr[12];  // Max 10 digits + sign + null
     ltoa(num, numStr, 10);
     bufferAppend(numStr);
 }
 
-// Append timestamp prefix: "+1234us\t"
-// Shows microseconds since last log entry
 static void bufferAppendTimestamp(void) {
     uint32_t now = micros();
     uint32_t delta = now - lastLogTime;
@@ -102,10 +82,13 @@ static void bufferAppendTimestamp(void) {
     
     bufferAppend("+");
     bufferAppendNumber(delta);
-    if(delta >= 10000){
-        bufferAppend("us\t");
-    }else{
-        bufferAppend("us\t\t");
+    bufferAppend("us");
+    
+    // Align the [TYPE] column
+    if (delta < 10000) {
+        bufferAppend("\t\t");
+    } else {
+        bufferAppend("\t");
     }
 }
 
@@ -119,43 +102,58 @@ void debugInit(void) {
     overflowOccurred = false;
     lastLogTime = micros();  // Initialize timestamp baseline
     
-    // Wait a moment for Serial to initialize
     delay(10);
-    
-    // Send startup message directly (we're in setup, no timing concerns)
-    Serial.println(F("=== DEBUG INIT ==="));
+    Serial.println(F("=== DEBUG START ==="));
+    Serial.println(F("DIFF\t\t[TYPE] DETAILS\t\t\t\t(STATUS)"));
+    Serial.println(F("-----------------------------------------------------------------"));
 }
 
 void debugTransition(int from, int to, int status) {
-    // Format: "+1234us\tPS_FROM -> PS_TO\t(TS_STATUS)\n"
     bufferAppendTimestamp();
-    bufferAppend(getProtocolStateName((ProtocolState)from));
+    bufferAppend("[TRANS] ");
+
+    const char* nameFrom = getProtocolStateName((ProtocolState)from);
+    const char* nameTo   = getProtocolStateName((ProtocolState)to);
+
+    bufferAppend(nameFrom);
     bufferAppend(" -> ");
-    bufferAppend(getProtocolStateName((ProtocolState)to));
-    bufferAppend("\t(");
+    bufferAppend(nameTo);
+
+    // Calculate length to align the (STATUS) column
+    // " -> " is 4 chars
+    uint16_t currentLen = strlen(nameFrom) + 4 + strlen(nameTo);
+
+    // Dynamic padding: target column start at char 40+
+    if (currentLen < 16) {
+        bufferAppend("\t\t\t\t");
+    } else if (currentLen < 24) {
+        bufferAppend("\t\t\t");
+    } else if (currentLen < 32) {
+        bufferAppend("\t\t");
+    } else {
+        bufferAppend("\t");
+    }
+
+    bufferAppend("(");
     bufferAppend(getTransferStatusName((TransferStatus)status));
     bufferAppend(")\n");
 }
 
 void debugEvent(const char* event) {
-    // Format: "+1234us [EVENT]\n"
     bufferAppendTimestamp();
-    bufferAppend("[");
+    bufferAppend("[EVENT] ");
     bufferAppend(event);
-    bufferAppend("]\n");
+    bufferAppend("\n");
+}
+
+void debugError(const char* error) {
+    bufferAppendTimestamp();
+    bufferAppend("[ERROR] ");
+    bufferAppend(error);
+    bufferAppend("\n");
 }
 
 bool debugCanFlush(int status) {
-    // Safe to flush when transfer layer is not actively transferring
-    // TS_STATUS_NOT_INIT = 0
-    // TS_STATUS_IDLE = 1
-    // TS_STATUS_SI_BUSY = 2  (not safe)
-    // TS_STATUS_SI_DONE = 3
-    // TS_STATUS_SO_BUSY = 4  (not safe)
-    // TS_STATUS_SO_DONE = 5
-    // TS_STATUS_TIMEOUT = 6
-    // TS_STATUS_ERROR = 7
-    
     return (status != TS_STATUS_SI_BUSY && status != TS_STATUS_SO_BUSY);
 }
 
@@ -165,19 +163,27 @@ void debugFlush(void) {
         return;
     }
     
-    // Send buffered content
     if (bufferHead > 0) {
-        // Null-terminate for safety
         debugBuffer[bufferHead] = '\0';
         Serial.print(debugBuffer);
         bufferHead = 0;
     }
     
-    // Append overflow message if overflow occurred
     if (overflowOccurred) {
         Serial.print(OVERFLOW_MSG);
         overflowOccurred = false;
     }
+}
+
+const char* byte_to_hex_str(unsigned char val) {
+    static char buf[3];
+    static const char hex_chars[] = "0123456789abcdef";
+    
+    buf[0] = hex_chars[(val >> 4) & 0x0F];
+    buf[1] = hex_chars[val & 0x0F];
+    buf[2] = '\0';
+    
+    return buf;
 }
 
 #endif // DEBUG_ENABLED

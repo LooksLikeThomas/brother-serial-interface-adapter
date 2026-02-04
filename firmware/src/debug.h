@@ -33,12 +33,17 @@ void debugTransition(int from, int to, int status);
 // Log a simple event (e.g., "POWER_DETECTED")
 void debugEvent(const char* event);
 
+// Log an Error (e.g., "TRANSFER_ERROR")
+void debugError(const char* error);
+
 // Flush buffer to Serial (only call when transfer layer is idle)
 void debugFlush(void);
 
 // Check if flush is safe based on transfer status
 // Parameter is int to avoid include dependencies
 bool debugCanFlush(int status);
+
+const char* byte_to_hex_str(unsigned char val);
 
 #ifdef __cplusplus
 }
@@ -48,7 +53,9 @@ bool debugCanFlush(int status);
 #define DBG_INIT()                      debugInit()
 #define DBG_TRANSITION(from, to, st)    debugTransition((int)(from), (int)(to), (int)(st))
 #define DBG_EVENT(evt)                  debugEvent(evt)
+#define DBG_ERROR(error)                debugError(error)
 #define DBG_FLUSH_IF_SAFE(status)       do { if (debugCanFlush((int)(status))) debugFlush(); } while(0)
+#define DBG_B_TO_HEX(val)               byte_to_hex_str((unsigned)(char)(val))
 
 #else
 
@@ -56,7 +63,9 @@ bool debugCanFlush(int status);
 #define DBG_INIT()                      ((void)0)
 #define DBG_TRANSITION(from, to, st)    ((void)0)
 #define DBG_EVENT(evt)                  ((void)0)
+#define DBG_ERROR(error)                ((void)0)
 #define DBG_FLUSH_IF_SAFE(status)       ((void)0)
+#define DBG_B_TO_HEX(val)               ((void)0)
 
 #endif // DEBUG_ENABLED
 

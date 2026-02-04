@@ -96,6 +96,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
     // Reset transfer layer and return to offline.
     //
     if (status == TS_STATUS_ERROR) {
+        DBG_ERROR("TS_STATUS_ERROR");
         transferDeinit(ts);
         transitionTo(ps, PS_OFFLINE);
         return PS_STATUS_OFFLINE;
@@ -110,6 +111,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
     // Skip check if already offline.
     //
     if (ps->state != PS_OFFLINE && now - ps->stateEnteredAt >= 100 && !isTypewriterPowered()) {
+        DBG_EVENT("TW Power OFF");
         transferDeinit(ts);
         transitionTo(ps, PS_OFFLINE);
         return PS_STATUS_OFFLINE;
@@ -130,6 +132,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: isTypewriterPowered() returns true
             // Action: Begin settle wait
             if (isTypewriterPowered()) {
+                DBG_EVENT("TW Power ON");
                 transitionTo(ps, PS_STARTUP_SETTLE);
                 return PS_STATUS_STARTUP;
             }
@@ -145,16 +148,6 @@ ProtocolStatus pollProtocol(Protocol *ps) {
         // Exit:  1.5s elapsed, or power lost
         //
         case PS_STARTUP_SETTLE:
-        
-            // ----- TRANSITION: Power lost during settle -----
-            // Guard: 100us in state AND Typewriter no longer powered
-            // Action: Return to offline
-            if (!isTypewriterPowered() && now - ps->stateEnteredAt >= 100) {
-                DBG_EVENT("TYPEWRITER_POWERED_OFF");
-                transferDeinit(ts);
-                transitionTo(ps, PS_OFFLINE);
-                return PS_STATUS_OFFLINE;
-            }
             
             // ----- TRANSITION: Settle time elapsed -----
             // Guard: 1.5s since power detected
@@ -181,6 +174,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: Transfer idle
             // Action: Queue 0xFE (interface announces presence)
             if (status == TS_STATUS_IDLE) {
+                DBG_EVENT("IF REQUEST 0xFE");
                 transferQueueSI(ts, 0xFE);
                 return PS_STATUS_STARTUP;
             }
@@ -197,6 +191,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
+                DBG_EVENT("STARTUP REQUEST TIMEOUT");
                 transferDeinit(ts);
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
@@ -218,17 +213,28 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: SO transfer complete
             // Action: Store device type, enter standby
             if (status == TS_STATUS_SO_DONE) {
+                DBG_EVENT("TW RESPONSE " + ts->receivedByte);
                 ps->deviceType = ts->receivedByte;
                 transitionTo(ps, PS_STANDBY);
                 return PS_STATUS_STANDBY;
             }
             
-            // ----- TRANSITION: No response -----
+            // ----- TRANSITION: Typewriter Transfer Timeout -----
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
                 transferDeinit(ts);
-                DBG_EVENT("TS_TIMEOUT");
+                DBG_EVENT("STARTUP TRANSFER TIMEOUT");
+                transitionTo(ps, PS_OFFLINE);
+                return PS_STATUS_OFFLINE;
+            }
+
+            // ----- TRANSITION: Typewriter Response Timeout -----
+            // Guard: 1s since Startup Request
+            // Action: Return to offline state
+            if (now - ps->stateEnteredAt >= 1000000) {
+                transferDeinit(ts);
+                DBG_EVENT("STARTUP RESPONSE TIMEOUT");
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
             }
@@ -261,10 +267,11 @@ ProtocolStatus pollProtocol(Protocol *ps) {
         //
         case PS_SELECT:
         
-            // ----- TRANSITION: Typewriter went offline -----
+            // ----- TRANSITION: Typewriter Timeout -----
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
+                DBG_EVENT("SELECT TRANSFER TIMEOUT");
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
             }
@@ -291,13 +298,26 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: DC3 from PC or typewriter DESELECT request
             // Action: Begin DESELECT sequence
             
+            // ----- TRANSITION: Typewriter Timeout -----
+            // Guard: Timeout from transfer layer
+            // Action: Return to offline state
+            if (status == TS_STATUS_TIMEOUT) {
+                DBG_EVENT("TRANSFER TIMEOUT");
+                transitionTo(ps, PS_OFFLINE);
+                return PS_STATUS_OFFLINE;
+            }
+            
             // ----- ACTION: Send next byte from buffer -----
             // Guard: Idle and siBuffer has data
             // Action: Queue byte to transfer layer
             if (status == TS_STATUS_IDLE && !siBufferEmpty()) {
-                uint8_t byte = siBufferPeek();
-                if (transferQueueSI(ts, byte)) {
-                    siBufferPop(&byte);
+                uint8_t si_byte = siBufferPeek();
+                if (transferQueueSI(ts, si_byte)) {
+                    DBG_EVENT("SI QUEUED");
+                    DBG_EVENT(DBG_B_TO_HEX(ts->receivedByte));
+                    siBufferPop(&si_byte);
+                }else{
+                    DBG_ERROR("QUEUED BYTE COLLISION");
                 }
                 return PS_STATUS_ONLINE;
             }
@@ -307,6 +327,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Action: Push byte to soBuffer
             if (status == TS_STATUS_SO_DONE) {
                 soBufferPush(ts->receivedByte);
+                DBG_EVENT("SO RECEIVED");
+                DBG_EVENT(DBG_B_TO_HEX(ts->receivedByte));
                 return PS_STATUS_ONLINE;
             }
             
@@ -326,6 +348,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
+                DBG_EVENT("TRANSFER TIMEOUT");
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
             }
