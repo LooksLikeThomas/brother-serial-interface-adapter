@@ -28,6 +28,7 @@ extern "C" {
 
 typedef enum {
     PS_OFFLINE,             // Waiting for typewriter to come online
+    PS_STARTUP_SETTLE,      // Typewriter powered on, waiting 1.5s for settle
     PS_STARTUP_INIT,        // Sending 0xFE to announce presence
     PS_STARTUP_RESPONSE,    // Waiting for device type byte (0x30)
     PS_STANDBY,             // Connected, waiting for SELECT trigger
@@ -61,6 +62,8 @@ typedef struct {
     uint32_t stateEnteredAt;    // micros() when state was entered
     uint8_t deviceType;         // Device type from startup response (e.g. 0x30)
     uint8_t selectStep;         // Sub-step counter for SELECT sequence
+    Transfer ts;                // Transfer layer state (owned by protocol)
+    TransferStatus lastTsStatus;// Last status from pollTransfer() (for debugging)
 } Protocol;
 
 // ==============================================
@@ -71,9 +74,8 @@ typedef struct {
 void protocolInit(Protocol *ps);
 
 // Run the protocol state machine — call every loop iteration
-// Takes the transfer status from pollTransfer() and the transfer struct
 // Returns current protocol status for the application layer
-ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts);
+ProtocolStatus pollProtocol(Protocol *ps);
 
 #ifdef __cplusplus
 }

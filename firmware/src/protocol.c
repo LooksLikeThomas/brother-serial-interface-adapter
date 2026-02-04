@@ -19,6 +19,8 @@
 #include "protocol.h"
 #include "transfer.h"
 #include "buffers.h"
+#include "hardware.h"
+#include "debug.h"
 
 // For micros() — remove when porting away from Arduino
 #include <Arduino.h>
@@ -34,8 +36,12 @@
 // Called by pollProtocol() on every state change.
 //
 static inline void transitionTo(Protocol *ps, ProtocolState newState) {
+    ProtocolState oldState = ps->state;
     ps->stateEnteredAt = micros();
     ps->state = newState;
+
+    // Log the transition with the status that triggered it
+    DBG_TRANSITION(oldState, newState, ps->lastTsStatus);
 }
 
 // ==============================================
@@ -47,6 +53,12 @@ void protocolInit(Protocol *ps) {
     ps->stateEnteredAt = 0;
     ps->deviceType = 0;
     ps->selectStep = 0;
+
+    // Transfer layer not initialized yet
+    ps->ts.state = TS_NOT_INIT;
+    ps->ts.stateEnteredAt = 0;
+    ps->ts.lastWasSI = true;
+    ps->ts.receivedByte = 0;
 }
 
 // ==============================================
@@ -60,7 +72,21 @@ void protocolInit(Protocol *ps) {
 // The protocol layer never touches hardware pins directly.
 // All hardware interaction goes through the transfer layer.
 //
-ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
+ProtocolStatus pollProtocol(Protocol *ps) {
+
+    uint32_t now = micros();
+    Transfer *ts = &ps->ts;
+
+    // ==========================================
+    // Poll Transfer Layer
+    // ==========================================
+    TransferStatus status = pollTransfer(ts);
+    ps->lastTsStatus = status;
+
+    // ==========================================
+    // Debug Flush (when safe)
+    // ==========================================
+    DBG_FLUSH_IF_SAFE(status);
 
     // ==========================================
     // Global Error Handling
@@ -70,7 +96,21 @@ ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
     // Reset transfer layer and return to offline.
     //
     if (status == TS_STATUS_ERROR) {
-        transferInit(ts);
+        transferDeinit(ts);
+        transitionTo(ps, PS_OFFLINE);
+        return PS_STATUS_OFFLINE;
+    }
+
+    // ==========================================
+    // Global Power Check
+    // ==========================================
+    //
+    // If typewriter loses power, return to offline.
+    // Grace Period of 100us to prevent fast switching between States
+    // Skip check if already offline.
+    //
+    if (ps->state != PS_OFFLINE && now - ps->stateEnteredAt >= 100 && !isTypewriterPowered()) {
+        transferDeinit(ts);
         transitionTo(ps, PS_OFFLINE);
         return PS_STATUS_OFFLINE;
     }
@@ -81,21 +121,52 @@ ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
         // PS_OFFLINE — Waiting for Typewriter
         // ==========================================
         //
-        // Entry: Init, or after timeout/disconnect
-        // Exit:  Typewriter comes online (KBRQ stable LOW)
+        // Entry: Init, or after error/disconnect
+        // Exit:  Typewriter power detected
         //
         case PS_OFFLINE:
         
-            // ----- TRANSITION: Typewriter detected -----
-            // Guard: isTypewriterOnline() returns true
-            // Action: Begin startup sequence
-            if (isTypewriterOnline()) {
-                transitionTo(ps, PS_STARTUP_INIT);
+            // ----- TRANSITION: Typewriter powered on -----
+            // Guard: isTypewriterPowered() returns true
+            // Action: Begin settle wait
+            if (isTypewriterPowered()) {
+                transitionTo(ps, PS_STARTUP_SETTLE);
                 return PS_STATUS_STARTUP;
             }
             
             // No transition
             return PS_STATUS_OFFLINE;
+        
+        // ==========================================
+        // PS_STARTUP_SETTLE — Wait for hardware settle
+        // ==========================================
+        //
+        // Entry: Typewriter power detected
+        // Exit:  1.5s elapsed, or power lost
+        //
+        case PS_STARTUP_SETTLE:
+        
+            // ----- TRANSITION: Power lost during settle -----
+            // Guard: 100us in state AND Typewriter no longer powered
+            // Action: Return to offline
+            if (!isTypewriterPowered() && now - ps->stateEnteredAt >= 100) {
+                DBG_EVENT("TYPEWRITER_POWERED_OFF");
+                transferDeinit(ts);
+                transitionTo(ps, PS_OFFLINE);
+                return PS_STATUS_OFFLINE;
+            }
+            
+            // ----- TRANSITION: Settle time elapsed -----
+            // Guard: 1.5s since power detected
+            // Action: Initialize transfer layer, begin startup sequence
+            if (now - ps->stateEnteredAt >= 1500000) {
+                transferInit(ts);
+                transitionTo(ps, PS_STARTUP_INIT);
+                return PS_STATUS_STARTUP;
+            }
+            
+            // No transition
+            return PS_STATUS_STARTUP;
         
         // ==========================================
         // PS_STARTUP_INIT — Send presence announcement
@@ -126,6 +197,7 @@ ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
+                transferDeinit(ts);
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
             }
@@ -155,6 +227,8 @@ ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
+                transferDeinit(ts);
+                DBG_EVENT("TS_TIMEOUT");
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
             }
@@ -170,28 +244,12 @@ ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
         // Exit:  SELECT trigger received (DC1 or typewriter request)
         //
         case PS_STANDBY:
-        
-            // ----- TRANSITION: Typewriter went offline -----
-            // Guard: Timeout from transfer layer
-            // Action: Return to offline state
-            if (status == TS_STATUS_TIMEOUT) {
-                transitionTo(ps, PS_OFFLINE);
-                return PS_STATUS_OFFLINE;
-            }
-            
-            // ----- TRANSITION: Silent disconnect -----
-            // Guard: Idle and typewriter no longer online
-            // Action: Return to offline state
-            if (status == TS_STATUS_IDLE && !isTypewriterOnline()) {
-                transitionTo(ps, PS_OFFLINE);
-                return PS_STATUS_OFFLINE;
-            }
             
             // TODO: TRANSITION: SELECT trigger received
             // Guard: DC1 from PC or typewriter SELECT request
             // Action: Begin SELECT sequence
             
-            // No transition
+            transitionTo(ps, PS_SELECT);
             return PS_STATUS_STANDBY;
         
         // ==========================================
@@ -229,23 +287,6 @@ ProtocolStatus pollProtocol(Protocol *ps, TransferStatus status, Transfer *ts) {
         //   - typewriter → transfer layer → soBuffer
         //
         case PS_ONLINE:
-        
-            // ----- TRANSITION: Typewriter went offline -----
-            // Guard: Timeout from transfer layer
-            // Action: Return to offline state
-            if (status == TS_STATUS_TIMEOUT) {
-                transitionTo(ps, PS_OFFLINE);
-                return PS_STATUS_OFFLINE;
-            }
-            
-            // ----- TRANSITION: Silent disconnect -----
-            // Guard: Idle and typewriter no longer online
-            // Action: Return to offline state
-            if (status == TS_STATUS_IDLE && !isTypewriterOnline()) {
-                transitionTo(ps, PS_OFFLINE);
-                return PS_STATUS_OFFLINE;
-            }
-            
             // TODO: TRANSITION: DESELECT trigger received
             // Guard: DC3 from PC or typewriter DESELECT request
             // Action: Begin DESELECT sequence
