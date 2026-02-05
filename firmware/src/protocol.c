@@ -52,7 +52,7 @@ void protocolInit(Protocol *ps) {
     ps->state = PS_OFFLINE;
     ps->stateEnteredAt = 0;
     ps->deviceType = 0;
-    ps->selectStep = 0;
+    ps->selectState = SEL_IDLE;
 
     // Transfer layer not initialized yet
     ps->ts.state = TS_NOT_INIT;
@@ -250,41 +250,184 @@ ProtocolStatus pollProtocol(Protocol *ps) {
         // Exit:  SELECT trigger received (DC1 or typewriter request)
         //
         case PS_STANDBY:
-            
-            // TODO: TRANSITION: SELECT trigger received
-            // Guard: DC1 from PC or typewriter SELECT request
-            // Action: Begin SELECT sequence
-            
-            transitionTo(ps, PS_SELECT);
-            return PS_STATUS_STANDBY;
-        
-        // ==========================================
-        // PS_SELECT — Mode selection sequence
-        // ==========================================
-        //
-        // Entry: SELECT trigger received
-        // Exit:  SELECT sequence complete, or timeout
-        //
-        case PS_SELECT:
-        
-            // ----- TRANSITION: Typewriter Timeout -----
+
+            // ----- TRANSITION: Typewriter Transfer Timeout -----
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
-                DBG_EVENT("SELECT TRANSFER TIMEOUT");
+                transferDeinit(ts);
+                DBG_EVENT("STANDBY TRANSFER TIMEOUT");
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
             }
             
-            // TODO: Implement SELECT sequence using selectStep
-            // For now, go directly to online
-            ps->selectStep = 0;
-            transitionTo(ps, PS_ONLINE);
-            return PS_STATUS_ONLINE;
+            // Check if PC send something
+            if (!siBufferEmpty()) {
+                uint8_t si_byte = siBufferPeek();
+                
+                // Discard unexpected bytes
+                if(si_byte != 0x11){
+                    siBufferPop(&si_byte);
+                    DBG_EVENT_HEX("STANDBY: DISCARDED BYTE", si_byte);
+                } 
+                
+                // ----- TRANSITION: DC1 received from PC -----
+                // Guard: siBuffer has DC1 (0x11)
+                // Action: Consume DC1, begin SELECT sequence
+                if (si_byte == 0x11) {
+                    siBufferPop(&si_byte);
+                    DBG_EVENT("DC1 RECEIVED - START SELECT");
+                    ps->selectState = SEL_QUEUE_MODE;
+                    transitionTo(ps, PS_SELECT);
+                    return PS_STATUS_SELECTING;
+                }
+            }
+            
+            // No transition (waiting for DC1)
+            return PS_STATUS_STANDBY;
         
-        // ==========================================
-        // PS_ONLINE — Bidirectional data mode
-        // ==========================================
+        // ==============================================
+        // PS_SELECT — Mode selection sequence
+        // ==============================================
+        //
+        // Entry: DC1 received from PC
+        // Exit:  SELECT sequence complete → ONLINE, or timeout → OFFLINE
+        //
+        // Sequence (AX20):
+        //   1. Send 0xF9 (terminal mode)
+        //   2. Send 0xFD
+        //   3. Wait for 0x04 (EOT) from typewriter
+        //   4. Send 0xF4 (reset margins + newline)
+        //   5. Send 0xB1 (pitch) ?
+        //   6. Send 0xB1 (pitch again) ?
+        //   → ONLINE
+        //
+        case PS_SELECT:
+
+            // ----- Global: Transfer Timeout -----
+            if (status == TS_STATUS_TIMEOUT) {
+                DBG_EVENT("SELECT TRANSFER TIMEOUT");
+                transferDeinit(ts);
+                transitionTo(ps, PS_OFFLINE);
+                return PS_STATUS_OFFLINE;
+            }
+
+            switch (ps->selectState) {
+                
+                // ----- Send Mode Byte -----
+                case SEL_QUEUE_MODE:
+                    if (status == TS_STATUS_IDLE) {
+                        DBG_EVENT_HEX("SELECT: SEND MODE", MODE_BYTE);
+                        transferQueueSI(ts, MODE_BYTE);
+                        ps->selectState = SEL_WAIT_MODE;
+                    }
+                    break;
+                    
+                case SEL_WAIT_MODE:
+                    if (status == TS_STATUS_SI_DONE) {
+                        ps->selectState = SEL_QUEUE_FD;
+                    }
+                    break;
+                
+                // ----- Send 0xFD ----- 
+                // TODO: Find out if static or dynamic
+                // Still in question what this byte does.
+                // Typewriter will respond after so probably
+                // some kind of Query.
+                case SEL_QUEUE_FD:
+                    if (status == TS_STATUS_IDLE) {
+                        DBG_EVENT_HEX("SELECT: QUEUE", 0xFD);
+                        transferQueueSI(ts, 0xFD);
+                        ps->selectState = SEL_WAIT_FD;
+                    }
+                    break;
+                    
+                case SEL_WAIT_FD:
+                    if (status == TS_STATUS_SI_DONE) {
+                        ps->selectState = SEL_WAIT_EOT;
+                    }
+                    break;
+                
+                // ----- Wait for EOT (0x04) from Typewriter -----
+                case SEL_WAIT_EOT:
+                    if (status == TS_STATUS_SO_DONE) {
+                        if (ts->receivedByte == 0x04) {
+                            DBG_EVENT_HEX("SELECT: GOT EOT", 0x04);
+                            ps->selectState = SEL_QUEUE_F4;
+                        } else {
+                            // ANTICIPATED BUT NOT OBSERVED BEHAVIOR
+                            DBG_EVENT_HEX("SELECT: EXPECTED EOT, GOT", ts->receivedByte);
+                        }
+                    }
+                    break;
+                
+                // ----- Send 0xF4 (Reset margins + newline) -----
+                case SEL_QUEUE_F4:
+                    if (status == TS_STATUS_IDLE) {
+                        DBG_EVENT_HEX("SELECT: QUEUE", 0xF4);
+                        transferQueueSI(ts, 0xF4);
+                        ps->selectState = SEL_WAIT_F4;
+                    }
+                    break;
+                    
+                case SEL_WAIT_F4:
+                    if (status == TS_STATUS_SI_DONE) {
+                        ps->selectState = SEL_QUEUE_PITCH1;
+                    }
+                    break;
+                
+                // ----- Send Pitch (0xB1 = 10 CPI) -----
+                case SEL_QUEUE_PITCH1:
+                    if (status == TS_STATUS_IDLE) {
+                        DBG_EVENT_HEX("SELECT: QUEUE PITCH1", 0xB1);
+                        transferQueueSI(ts, 0xB1);
+                        ps->selectState = SEL_WAIT_PITCH1;
+                    }
+                    break;
+                    
+                case SEL_WAIT_PITCH1:
+                    if (status == TS_STATUS_SI_DONE) {
+                        ps->selectState = SEL_QUEUE_PITCH2;
+                    }
+                    break;
+                
+                // ----- Send Pitch Again (0xB1) -----
+                case SEL_QUEUE_PITCH2:
+                    if (status == TS_STATUS_IDLE) {
+                        DBG_EVENT_HEX("SELECT: QUEUE PITCH2", 0xB1);
+                        transferQueueSI(ts, 0xB1);
+                        ps->selectState = SEL_WAIT_PITCH2;
+                    }
+                    break;
+                    
+                case SEL_WAIT_PITCH2:
+                    if (status == TS_STATUS_SI_DONE) {
+                        ps->selectState = SEL_COMPLETE;
+                    }
+                    break;
+                
+                // ----- TRANSITION: SELECT sequence complete -----
+                // Guard: reached SEL_COMPLETE Sub-State
+                // Action: Enter Operation
+                case SEL_COMPLETE:
+                    DBG_EVENT("SELECT COMPLETE");
+                    ps->selectState = SEL_IDLE;
+                    transitionTo(ps, PS_ONLINE);
+                    return PS_STATUS_ONLINE;
+                
+                // ----- Invalid State -----
+                default:
+                    DBG_ERROR("SELECT: INVALID STATE");
+                    ps->selectState = SEL_IDLE;
+                    transitionTo(ps, PS_STANDBY);
+                    break;
+            }
+            
+            return PS_STATUS_SELECTING;
+        
+        // ==================================================
+        // PS_ONLINE — Bidirectional/Unidirectional data mode
+        // ==================================================
         //
         // Entry: SELECT sequence complete
         // Exit:  DESELECT trigger (DC3) or timeout
@@ -307,11 +450,24 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 return PS_STATUS_OFFLINE;
             }
             
-            // ----- ACTION: Send next byte from buffer -----
+            // ----- ACTION: Check next byte from buffer -----
             // Guard: Idle and siBuffer has data
-            // Action: Queue byte to transfer layer
             if (status == TS_STATUS_IDLE && !siBufferEmpty()) {
                 uint8_t si_byte = siBufferPeek();
+
+                // ----- TRANSITION: DC3 received from PC -----
+                // Guard: si_byte is DC3 (0x13)
+                // Action: Consume DC3, begin DESELECT sequence
+                if (si_byte == 0x13) {
+                    uint8_t si_byte;
+                    siBufferPop(&si_byte);
+                    DBG_EVENT("DC3 RECEIVED - START DESELECT");
+                    ps->deselectState = DESEL_QUEUE;
+                    transitionTo(ps, PS_DESELECT);
+                    return PS_STATUS_DESELECTING;
+                }
+
+                // Action: Queue byte to transfer layer
                 if (transferQueueSI(ts, si_byte)) {
                     DBG_EVENT_HEX("SI QUEUED", si_byte);
                     siBufferPop(&si_byte);
@@ -333,28 +489,70 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // No transition (idle or transfer in progress)
             return PS_STATUS_ONLINE;
         
-        // ==========================================
+        // ==============================================
         // PS_DESELECT — Disconnect sequence
-        // ==========================================
+        // ==============================================
         //
-        // Entry: DESELECT trigger received
-        // Exit:  DESELECT sequence complete → STANDBY, or timeout
+        // Entry: DC3 received from PC while ONLINE
+        // Exit:  DESELECT byte sent → STANDBY, or timeout → OFFLINE
+        //
+        // Sequence depends on device type:
+        //   0x30: Send 0xF8
+        //   other: TODO
         //
         case PS_DESELECT:
-        
-            // ----- TRANSITION: Typewriter went offline -----
-            // Guard: Timeout from transfer layer
-            // Action: Return to offline state
+
+            // ----- Global: Transfer Timeout -----
             if (status == TS_STATUS_TIMEOUT) {
-                DBG_EVENT("TRANSFER TIMEOUT");
+                DBG_EVENT("DESELECT TRANSFER TIMEOUT");
+                transferDeinit(ts);
                 transitionTo(ps, PS_OFFLINE);
                 return PS_STATUS_OFFLINE;
             }
+
+            switch (ps->deselectState) {
+                
+                // Send deselect byte based on device type
+                case DESEL_QUEUE:
+                    if (status == TS_STATUS_IDLE) {
+                        if (ps->deviceType == 0x30) {
+                            DBG_EVENT_HEX("DESELECT: QUEUE", 0xF8);
+                            transferQueueSI(ts, 0xF8);
+                            ps->deselectState = DESEL_WAIT;
+                        } else {
+                            // Unknown device type
+                            DBG_EVENT_HEX("DESELECT: UNKNOWN DEVICE", ps->deviceType);
+                            transferQueueSI(ts, 0xF8);
+                            ps->deselectState = DESEL_WAIT;
+                        }
+                    }
+                    break;
+                    
+                // Wait for SI Transfer to Complete
+                case DESEL_WAIT:
+                    if (status == TS_STATUS_SI_DONE) {
+                        ps->deselectState = DESEL_COMPLETE;
+                    }
+                    break;
+                
+                // ----- TRANSITION: DESELECT complete -----
+                // Guard: reached DESEL_COMPLETE Substate
+                // Action: Return to STANDBY
+                case DESEL_COMPLETE:
+                    DBG_EVENT("DESELECT COMPLETE");
+                    ps->deselectState = DESEL_IDLE;
+                    transitionTo(ps, PS_STANDBY);
+                    return PS_STATUS_STANDBY;
+                
+                // ----- Invalid State -----
+                default:
+                    DBG_ERROR("DESELECT: INVALID STATE");
+                    ps->deselectState = DESEL_QUEUE;
+                    break;
+            }
             
-            // TODO: Implement DESELECT sequence
-            // For now, go directly to standby
-            transitionTo(ps, PS_STANDBY);
-            return PS_STATUS_STANDBY;
+            // No transition (deselecting in progress)
+            return PS_STATUS_DESELECTING;
         
         // ------------------------------------------
         // DEFAULT — Should never happen

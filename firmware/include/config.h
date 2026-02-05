@@ -32,9 +32,8 @@ extern "C" {
 // ==============================================
 
 // System Operation Mode
-// false = Printer Mode
-// true  = Terminal Mode
-static const bool MODE = true; // TODO: NOT IMPLEMENTED
+// #define MODE_BYTE 0xF8   // Printer Mode  (PC --> Typewriter)
+#define MODE_BYTE 0xF9      // Terminal Mode (PC <-> Typewriter)
 
 // ASCII Wheel Selection
 // Controls how country/region switches are interpreted based on the wheel used.
@@ -106,7 +105,7 @@ static const bool SERIAL_PARITY = false; // TODO: NOT IMPLEMENTED
 // Serial Baud Rate
 // Speed of the serial connection in bits per second.
 // Maximum supported rate: 112500
-#define SERIAL_BAUD 9600 // TODO: NOT IMPLEMENTED
+static const uint32_t SERIAL_BAUD = 9600; // TODO: NOT IMPLEMENTED
 
 #ifdef __cplusplus
 }
