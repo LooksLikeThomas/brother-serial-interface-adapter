@@ -26,6 +26,7 @@
 // Global State
 // ==============================================
 
+static bool flowStopped = false;
 
 Protocol ps;    // Protocol layer state
 
@@ -71,6 +72,17 @@ void loop() {
     // Run state machines
     pollProtocol(&ps);
     
+     // Flow control
+    uint8_t bufLevel = siBufferCount();
+    if (!flowStopped && bufLevel >= FLOW_HIGH_WATER) {
+        Serial.write(XOFF);
+        flowStopped = true;
+        DBG_EVENT_HEX("FLOW: XOFF SENT, BUFFER AT", bufLevel);
+    } else if (flowStopped && bufLevel <= FLOW_LOW_WATER) {
+        Serial.write(XON);
+        flowStopped = false;
+        DBG_EVENT_HEX("FLOW: XON SENT, BUFFER AT", bufLevel);
+    }
     
     // Echo anything received from typewriter to Serial
     uint8_t so_byte;

@@ -21,6 +21,7 @@ extern "C" {
 // ----- SI Buffer (outgoing to typewriter) -----
 
 bool siBufferEmpty();
+uint8_t siBufferCount(void);
 bool siBufferFull();
 bool siBufferPush(uint8_t byte);
 bool siBufferPop(uint8_t *byte);

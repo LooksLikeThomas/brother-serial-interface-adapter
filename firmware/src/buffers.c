@@ -7,18 +7,17 @@
 // Buffer is full when (head + 1) % size == tail
 //
 #include "buffers.h"
-
-#define BUFFER_SIZE 128
+#include "config.h"
 
 // ----- SI Buffer Storage (outgoing to typewriter) -----
 
-static volatile uint8_t siBuffer[BUFFER_SIZE];
+static volatile uint8_t siBuffer[SI_BUFFER_SIZE];
 static volatile uint8_t siHead = 0;    // Write position
 static volatile uint8_t siTail = 0;    // Read position
 
 // ----- SO Buffer Storage (incoming from typewriter) -----
 
-static volatile uint8_t soBuffer[BUFFER_SIZE];
+static volatile uint8_t soBuffer[SO_BUFFER_SIZE];
 static volatile uint8_t soHead = 0;    // Write position
 static volatile uint8_t soTail = 0;    // Read position
 
@@ -31,20 +30,24 @@ bool siBufferEmpty() {
 }
 
 bool siBufferFull() {
-    return ((siHead + 1) % BUFFER_SIZE) == siTail;
+    return ((siHead + 1) % SI_BUFFER_SIZE) == siTail;
+}
+
+uint8_t siBufferCount(void) {
+    return (siHead - siTail + SI_BUFFER_SIZE) % SI_BUFFER_SIZE;
 }
 
 bool siBufferPush(uint8_t byte) {
     if (siBufferFull()) return false;
     siBuffer[siHead] = byte;
-    siHead = (siHead + 1) % BUFFER_SIZE;
+    siHead = (siHead + 1) % SI_BUFFER_SIZE;
     return true;
 }
 
 bool siBufferPop(uint8_t *byte) {
     if (siBufferEmpty()) return false;
     *byte = siBuffer[siTail];
-    siTail = (siTail + 1) % BUFFER_SIZE;
+    siTail = (siTail + 1) % SI_BUFFER_SIZE;
     return true;
 }
 
@@ -61,20 +64,20 @@ bool soBufferEmpty() {
 }
 
 bool soBufferFull() {
-    return ((soHead + 1) % BUFFER_SIZE) == soTail;
+    return ((soHead + 1) % SO_BUFFER_SIZE) == soTail;
 }
 
 bool soBufferPush(uint8_t byte) {
     if (soBufferFull()) return false;
     soBuffer[soHead] = byte;
-    soHead = (soHead + 1) % BUFFER_SIZE;
+    soHead = (soHead + 1) % SO_BUFFER_SIZE;
     return true;
 }
 
 bool soBufferPop(uint8_t *byte) {
     if (soBufferEmpty()) return false;
     *byte = soBuffer[soTail];
-    soTail = (soTail + 1) % BUFFER_SIZE;
+    soTail = (soTail + 1) % SO_BUFFER_SIZE;
     return true;
 }
 

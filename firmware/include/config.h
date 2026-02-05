@@ -27,6 +27,34 @@ extern "C" {
 // true  = Enable debugging (Writes buffered debug messages to the Serial port)
 #define DEBUG_ENABLED 1
 
+
+// ==============================================
+// Buffers
+// ==============================================
+
+// Buffer size for SI (outgoing to typewriter)
+#define SI_BUFFER_SIZE 256
+
+// Buffer size for SO (incoming from typewriter)
+#define SO_BUFFER_SIZE 16
+
+// ==============================================
+// Software Flow Control (XON/XOFF)
+// ==============================================
+//
+// When the SI buffer fills up, the interface sends XOFF to tell
+// the PC to stop sending. When the buffer drains, it sends XON
+// to resume. The PC's terminal program must have XON/XOFF enabled.
+//
+// HIGH_WATER: Send XOFF when buffer reaches this level
+// LOW_WATER:  Send XON when buffer drops to this level
+//
+
+#define XON             0x11  // DC1 - Resume transmission
+#define XOFF            0x13  // DC3 - Pause transmission
+#define FLOW_HIGH_WATER 96    // Send XOFF above this
+#define FLOW_LOW_WATER  32    // Send XON below this
+
 // ==============================================
 // Operation Modes
 // ==============================================
