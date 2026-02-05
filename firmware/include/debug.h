@@ -6,13 +6,13 @@
 // Messages are buffered during execution and flushed
 // only when the transfer layer is idle.
 //
-// Set DEBUG_ENABLED to 0 to completely remove all
-// debugging code from the build.
+// Set DEBUG_ENABLED to false in config.h to completely 
+// remove all debugging code from the build.
 //
 #ifndef DEBUG_H
 #define DEBUG_H
 
-#define DEBUG_ENABLED 1  // Set to 0 to disable all debugging
+#include <config.h>
 
 #if DEBUG_ENABLED
 

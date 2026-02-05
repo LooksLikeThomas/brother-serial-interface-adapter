@@ -17,6 +17,17 @@ extern "C" {
 #endif
 
 // ==============================================
+// Debugging
+// ==============================================
+
+// Debug Logging Enable
+// Controls the inclusion of debug code at compile time.
+//
+// false = Disable debugging (Production build; removes logging overhead)
+// true  = Enable debugging (Writes buffered debug messages to the Serial port)
+#define DEBUG_ENABLED true
+
+// ==============================================
 // Operation Modes
 // ==============================================
 
