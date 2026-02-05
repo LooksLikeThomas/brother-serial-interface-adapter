@@ -74,8 +74,7 @@ void loop() {
     uint8_t si_byte;
     if (soBufferPop(&si_byte)) {
         if (!DEBUG_ENABLED){
-            DBG_EVENT("SERIAL SEND");
-            DBG_EVENT(DBG_B_TO_HEX(si_byte));
+            DBG_EVENT_HEX("SERIAL SEND", si_byte);
         }else{
             Serial.print(si_byte);
         }
@@ -85,8 +84,7 @@ void loop() {
     if (Serial.available()) {
         uint8_t so_byte = Serial.read();
 
-        DBG_EVENT("SERIAL RECEIVED");
-        DBG_EVENT(DBG_B_TO_HEX(so_byte));
+        DBG_EVENT_HEX("SERIAL RECEIVED", so_byte);
         
         siBufferPush(so_byte);
     }

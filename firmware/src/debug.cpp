@@ -15,9 +15,11 @@
 // ==============================================
 
 #define DEBUG_BUFFER_SIZE 512
+#define DEBUG_FLUSH_CHUNK_SIZE 16
 
 static char debugBuffer[DEBUG_BUFFER_SIZE];
 static volatile uint16_t bufferHead = 0;  // Write position
+static volatile uint16_t bufferTail = 0;  // Read position
 static volatile bool overflowOccurred = false;
 static volatile uint32_t lastLogTime = 0;
 
@@ -61,7 +63,9 @@ static const char* getTransferStatusName(TransferStatus status) {
 
 static void bufferAppend(const char* str) {
     uint16_t len = strlen(str);
-    if (bufferHead + len >= DEBUG_BUFFER_SIZE - sizeof(OVERFLOW_MSG)) {
+    uint16_t available = DEBUG_BUFFER_SIZE - bufferHead - 1; // Reserve space for overflow msg
+    
+    if (len > available - sizeof(OVERFLOW_MSG)) {
         overflowOccurred = true;
         return;
     }
@@ -99,6 +103,7 @@ static void bufferAppendTimestamp(void) {
 void debugInit(void) {
     Serial.begin(115200);
     bufferHead = 0;
+    bufferTail = 0;
     overflowOccurred = false;
     lastLogTime = micros();  // Initialize timestamp baseline
     
@@ -146,9 +151,34 @@ void debugEvent(const char* event) {
     bufferAppend("\n");
 }
 
+void debugEventHex(const char* event, uint8_t val) {
+    bufferAppendTimestamp();
+    bufferAppend("[EVENT] ");
+    bufferAppend(event);
+
+    // Calculate length of the label to determine padding
+    uint16_t len = strlen(event);
+
+    // Dynamic padding logic
+    // This aligns the HEX value to the same column regardless of label length
+    // Adjust thresholds (16, 24) if your labels get longer
+    if (len < 8) {
+        bufferAppend("\t\t\t");
+    } else if (len < 16) {
+        bufferAppend("\t\t");
+    } else if (len < 24) {
+        bufferAppend("\t");
+    } else {
+        bufferAppend(" "); // Just a space if the label is very long
+    }
+
+    bufferAppend(byte_to_hex_str(val));
+    bufferAppend("\n");
+}
+
 void debugError(const char* error) {
     bufferAppendTimestamp();
-    bufferAppend("[ERROR] ");
+    bufferAppend("[ERROR] !!");
     bufferAppend(error);
     bufferAppend("\n");
 }
@@ -158,30 +188,57 @@ bool debugCanFlush(int status) {
 }
 
 void debugFlush(void) {
-    // Nothing to flush
-    if (bufferHead == 0 && !overflowOccurred) {
+    // If buffer is empty and no overflow, do nothing
+    if (bufferHead == bufferTail && !overflowOccurred) {
         return;
     }
     
-    if (bufferHead > 0) {
-        debugBuffer[bufferHead] = '\0';
-        Serial.print(debugBuffer);
-        bufferHead = 0;
+    // Check how much space is available in the Hardware UART buffer
+    int available = Serial.availableForWrite();
+    
+    // If hardware is full, return immediately to keep main loop running
+    if (available == 0) {
+        return; 
     }
     
-    if (overflowOccurred) {
+    // Send overflow message first if it occurred and buffer is drained
+    if (overflowOccurred && bufferHead == bufferTail) {
         Serial.print(OVERFLOW_MSG);
         overflowOccurred = false;
+        return;
+    }
+    
+    // Calculate the largest block we can send right now
+    int pending = bufferHead - bufferTail;
+    int chunk = (pending < available) ? pending : available;
+    
+    // Limit to 64 bytes per call to avoid blocking
+    if (chunk > DEBUG_FLUSH_CHUNK_SIZE) {
+        chunk = DEBUG_FLUSH_CHUNK_SIZE;
+    }
+    
+    // BLOCK WRITE: Efficiently transfer the chunk
+    Serial.write((uint8_t*)&debugBuffer[bufferTail], chunk);
+    
+    // Advance the tail
+    bufferTail += chunk;
+    
+    // Reset pointers only when completely drained
+    if (bufferTail == bufferHead) {
+        bufferHead = 0;
+        bufferTail = 0;
     }
 }
 
 const char* byte_to_hex_str(unsigned char val) {
-    static char buf[3];
-    static const char hex_chars[] = "0123456789abcdef";
+    static char buf[5];
+    static const char hex_chars[] = "0123456789ABCDEF";
     
-    buf[0] = hex_chars[(val >> 4) & 0x0F];
-    buf[1] = hex_chars[val & 0x0F];
-    buf[2] = '\0';
+    buf[0] = '0';
+    buf[1] = 'x';
+    buf[2] = hex_chars[(val >> 4) & 0x0F];
+    buf[3] = hex_chars[val & 0x0F];
+    buf[4] = '\0';
     
     return buf;
 }

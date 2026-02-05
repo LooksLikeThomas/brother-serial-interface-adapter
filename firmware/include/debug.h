@@ -33,6 +33,9 @@ void debugTransition(int from, int to, int status);
 // Log a simple event (e.g., "POWER_DETECTED")
 void debugEvent(const char* event);
 
+// Log a simple event and a byte as hex (e.g., "RESPONSE: 0x55")
+void debugEventHex(const char* event, uint8_t val);
+
 // Log an Error (e.g., "TRANSFER_ERROR")
 void debugError(const char* error);
 
@@ -53,6 +56,7 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_INIT()                      debugInit()
 #define DBG_TRANSITION(from, to, st)    debugTransition((int)(from), (int)(to), (int)(st))
 #define DBG_EVENT(evt)                  debugEvent(evt)
+#define DBG_EVENT_HEX(evt, val)         debugEventHex(evt, val)
 #define DBG_ERROR(error)                debugError(error)
 #define DBG_FLUSH_IF_SAFE(status)       do { if (debugCanFlush((int)(status))) debugFlush(); } while(0)
 #define DBG_B_TO_HEX(val)               byte_to_hex_str((unsigned)(char)(val))
@@ -63,6 +67,7 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_INIT()                      ((void)0)
 #define DBG_TRANSITION(from, to, st)    ((void)0)
 #define DBG_EVENT(evt)                  ((void)0)
+#define DBG_EVENT_HEX(msg, val)         ((void)0)
 #define DBG_ERROR(error)                ((void)0)
 #define DBG_FLUSH_IF_SAFE(status)       ((void)0)
 #define DBG_B_TO_HEX(val)               ((void)0)

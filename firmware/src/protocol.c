@@ -213,8 +213,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: SO transfer complete
             // Action: Store device type, enter standby
             if (status == TS_STATUS_SO_DONE) {
-                DBG_EVENT("TW RESPONSE ");
-                DBG_EVENT(DBG_B_TO_HEX(ts->receivedByte));
+                DBG_EVENT_HEX("TW RESPONSE", ts->receivedByte);
                 ps->deviceType = ts->receivedByte;
                 transitionTo(ps, PS_STANDBY);
                 return PS_STATUS_STANDBY;
@@ -314,8 +313,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             if (status == TS_STATUS_IDLE && !siBufferEmpty()) {
                 uint8_t si_byte = siBufferPeek();
                 if (transferQueueSI(ts, si_byte)) {
-                    DBG_EVENT("SI QUEUED");
-                    DBG_EVENT(DBG_B_TO_HEX(ts->receivedByte));
+                    DBG_EVENT_HEX("SI QUEUED", si_byte);
                     siBufferPop(&si_byte);
                 }else{
                     DBG_ERROR("QUEUED BYTE COLLISION");
@@ -328,8 +326,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Action: Push byte to soBuffer
             if (status == TS_STATUS_SO_DONE) {
                 soBufferPush(ts->receivedByte);
-                DBG_EVENT("SO RECEIVED");
-                DBG_EVENT(DBG_B_TO_HEX(ts->receivedByte));
+                DBG_EVENT_HEX("SO RECEIVED", ts->receivedByte);
                 return PS_STATUS_ONLINE;
             }
             
