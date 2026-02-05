@@ -39,16 +39,18 @@ void setup() {
 
     // wait for everything to settle
     delay(100);
-    
-    // Initialize debug system (sets up Serial at 115200)
-    // Must be done with interrupts enabled
+
+    // Initialize Serial for data transfer (and debug if enabled)
+    Serial.begin(115200);
+
+    // Initialize debug system
     DBG_INIT();
     
     // Initialize protocol layer (state machine)
     // Transfer layer will be initialized when typewriter powers on
     protocolInit(&ps);
     
-    DBG_EVENT("SETUP_COMPLETE");
+    DBG_EVENT("SETUP COMPLETE");
 }
 
 // ==============================================
@@ -74,7 +76,7 @@ void loop() {
     uint8_t so_byte;
     if (soBufferPop(&so_byte)) {
 
-        if (!DEBUG_ENABLED){
+        if (DEBUG_ENABLED){
             DBG_EVENT_HEX("SERIAL SEND", so_byte);
         }else{
             Serial.print(so_byte);

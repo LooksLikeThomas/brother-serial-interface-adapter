@@ -101,7 +101,6 @@ static void bufferAppendTimestamp(void) {
 // ==============================================
 
 void debugInit(void) {
-    Serial.begin(115200);
     bufferHead = 0;
     bufferTail = 0;
     overflowOccurred = false;
