@@ -25,7 +25,7 @@ extern "C" {
 //
 // false = Disable debugging (Production build; removes logging overhead)
 // true  = Enable debugging (Writes buffered debug messages to the Serial port)
-#define DEBUG_ENABLED true
+#define DEBUG_ENABLED 1
 
 // ==============================================
 // Operation Modes

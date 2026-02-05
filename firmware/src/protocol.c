@@ -20,6 +20,7 @@
 #include "transfer.h"
 #include "buffers.h"
 #include "hardware.h"
+#include "keymap.h"
 #include "debug.h"
 
 // For micros() — remove when porting away from Arduino
@@ -467,22 +468,29 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     return PS_STATUS_DESELECTING;
                 }
 
-                // Action: Queue byte to transfer layer
+                
+                // Action: Translate and queue byte to transfer layer
+                uint8_t mapped_byte = keymapToTypewriter(si_byte);
+
                 if (transferQueueSI(ts, si_byte)) {
-                    DBG_EVENT_HEX("SI QUEUED", si_byte);
+                    DBG_EVENT_HEX("SI MAPPED", mapped_byte);
+                    DBG_EVENT_HEX("SI QUEUED", mapped_byte);
                     siBufferPop(&si_byte);
                 }else{
                     DBG_ERROR("QUEUED BYTE COLLISION");
                 }
+
                 return PS_STATUS_ONLINE;
             }
             
             // ----- ACTION: Store received byte -----
             // Guard: SO transfer complete
-            // Action: Push byte to soBuffer
+            // Action: Translate and push byte to soBuffer
             if (status == TS_STATUS_SO_DONE) {
-                soBufferPush(ts->receivedByte);
+                uint8_t mapped_byte = keymapToPC(ts->receivedByte);
+                soBufferPush(mapped_byte);
                 DBG_EVENT_HEX("SO RECEIVED", ts->receivedByte);
+                DBG_EVENT_HEX("SO MAPPED", mapped_byte);
                 return PS_STATUS_ONLINE;
             }
             
