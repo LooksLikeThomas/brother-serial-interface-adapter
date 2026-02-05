@@ -213,7 +213,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: SO transfer complete
             // Action: Store device type, enter standby
             if (status == TS_STATUS_SO_DONE) {
-                DBG_EVENT("TW RESPONSE " + ts->receivedByte);
+                DBG_EVENT("TW RESPONSE ");
+                DBG_EVENT(DBG_B_TO_HEX(ts->receivedByte));
                 ps->deviceType = ts->receivedByte;
                 transitionTo(ps, PS_STANDBY);
                 return PS_STATUS_STANDBY;
