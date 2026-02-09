@@ -50,10 +50,9 @@ extern "C" {
 // LOW_WATER:  Send XON when buffer drops to this level
 //
 
-#define XON             0x11  // DC1 - Resume transmission
-#define XOFF            0x13  // DC3 - Pause transmission
-#define FLOW_HIGH_WATER 96    // Send XOFF above this
-#define FLOW_LOW_WATER  32    // Send XON below this
+#define FLOWCONTROL_ENABLED 1
+#define FLOW_HIGH_WATER (SI_BUFFER_SIZE * 3 / 4)    // Send XOFF above this
+#define FLOW_LOW_WATER  (SI_BUFFER_SIZE / 4)        // Send XON below this
 
 // ==============================================
 // Operation Modes
@@ -133,7 +132,7 @@ static const bool SERIAL_PARITY = false; // TODO: NOT IMPLEMENTED
 // Serial Baud Rate
 // Speed of the serial connection in bits per second.
 // Maximum supported rate: 112500
-static const uint32_t SERIAL_BAUD = 9600; // TODO: NOT IMPLEMENTED
+static const uint32_t SERIAL_BAUD = 9600;
 
 #ifdef __cplusplus
 }

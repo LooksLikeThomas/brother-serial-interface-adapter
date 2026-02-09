@@ -23,7 +23,7 @@ static volatile uint16_t bufferTail = 0;  // Read position
 static volatile bool overflowOccurred = false;
 static volatile uint32_t lastLogTime = 0;
 
-static const char OVERFLOW_MSG[] = "[OVERFLOW]\n";
+static const char OVERFLOW_MSG[] = "[OVERFLOW]\n\r";
 
 // ==============================================
 // State and Status Name Tables
@@ -154,14 +154,14 @@ void debugTransition(int from, int to, int status) {
 
     bufferAppend("(");
     bufferAppend(getTransferStatusName((TransferStatus)status));
-    bufferAppend(")\n");
+    bufferAppend(")\n\r");
 }
 
 void debugEvent(const char* event) {
     bufferAppendTimestamp();
     bufferAppend("[EVENT] ");
     bufferAppend(event);
-    bufferAppend("\n");
+    bufferAppend("\n\r");
 }
 
 void debugEventHex(const char* event, uint8_t val) {
@@ -184,14 +184,14 @@ void debugEventHex(const char* event, uint8_t val) {
     }
 
     bufferAppend(byte_to_hex_str(val));
-    bufferAppend("\n");
+    bufferAppend("\n\r");
 }
 
 void debugError(const char* error) {
     bufferAppendTimestamp();
     bufferAppend("[ERROR] !!");
     bufferAppend(error);
-    bufferAppend("\n");
+    bufferAppend("\n\r");
 }
 
 bool debugCanFlush(int status) {

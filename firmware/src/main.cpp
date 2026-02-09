@@ -26,7 +26,9 @@
 // Global State
 // ==============================================
 
-static bool flowStopped = false;
+#if FLOWCONTROL_ENABLED
+    static bool flowStopped = false;
+#endif
 
 Protocol ps;    // Protocol layer state
 
@@ -42,7 +44,7 @@ void setup() {
     delay(100);
 
     // Initialize Serial for data transfer (and debug if enabled)
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD);
 
     // Initialize debug system
     DBG_INIT();
@@ -53,6 +55,29 @@ void setup() {
     
     DBG_EVENT("SETUP COMPLETE");
 }
+
+// ==============================================
+// Helper Methods
+// ==============================================
+// Checks buffer levels and manages Software Flow Control (XON/XOFF).
+// Must be called every loop iteration to prevent deadlocks.
+//
+#if FLOWCONTROL_ENABLED
+void manageFlowControl() {
+    uint8_t bufLevel = siBufferCount();
+
+    if (!flowStopped && bufLevel >= FLOW_HIGH_WATER) {
+        Serial.write(0x13); // XOFF
+        flowStopped = true;
+        DBG_EVENT_HEX("FLOW: XOFF SENT, BUFFER AT", bufLevel);
+    } 
+    else if (flowStopped && bufLevel <= FLOW_LOW_WATER) {
+        Serial.write(0x11); // XON
+        flowStopped = false;
+        DBG_EVENT_HEX("FLOW: XON SENT, BUFFER AT", bufLevel);
+    }
+}
+#endif
 
 // ==============================================
 // Main Loop
@@ -69,21 +94,31 @@ void setup() {
 // See TransferStatus contract in transfer.h.
 //
 void loop() {
-    // Run state machines
-    pollProtocol(&ps);
+    // Empty UART Buffer and push to SI-Puffer
+    uint8_t readCount = 0;
     
-     // Flow control
-    uint8_t bufLevel = siBufferCount();
-    if (!flowStopped && bufLevel >= FLOW_HIGH_WATER) {
-        Serial.write(XOFF);
-        flowStopped = true;
-        DBG_EVENT_HEX("FLOW: XOFF SENT, BUFFER AT", bufLevel);
-    } else if (flowStopped && bufLevel <= FLOW_LOW_WATER) {
-        Serial.write(XON);
-        flowStopped = false;
-        DBG_EVENT_HEX("FLOW: XON SENT, BUFFER AT", bufLevel);
+    while (Serial.available() && readCount < 64) {
+        uint8_t serial_byte = Serial.read();
+        
+        // Try to push to buffer
+        if (!siBufferPush(serial_byte)) {
+            DBG_ERROR("SI BUFFER FULL - BYTE DROPPED");
+        } else {
+            readCount++;
+        }
     }
     
+    if (readCount > 0) {
+        #if FLOWCONTROL_ENABLED
+            manageFlowControl();
+        #endif
+        
+        DBG_EVENT_HEX("SERIAL BATCH READ", readCount);
+    }
+
+    // Run state machines
+    pollProtocol(&ps);
+        
     // Echo anything received from typewriter to Serial
     uint8_t so_byte;
     if (soBufferPop(&so_byte)) {
@@ -93,14 +128,5 @@ void loop() {
         }else{
             Serial.print(so_byte);
         }
-    }
-    
-    // Send anything received from Serial to typewriter
-    if (Serial.available()) {
-        uint8_t serial_byte = Serial.read();
-
-        DBG_EVENT_HEX("SERIAL RECEIVED", serial_byte);
-        
-        siBufferPush(serial_byte);
     }
 }
