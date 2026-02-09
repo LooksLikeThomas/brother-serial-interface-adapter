@@ -14,8 +14,8 @@
 // Buffer Configuration
 // ==============================================
 
-#define DEBUG_BUFFER_SIZE 512
-#define DEBUG_FLUSH_CHUNK_SIZE 16
+#define DEBUG_BUFFER_SIZE 256
+#define DEBUG_FLUSH_CHUNK_SIZE 64
 
 static char debugBuffer[DEBUG_BUFFER_SIZE];
 static volatile uint16_t bufferHead = 0;  // Write position
@@ -61,14 +61,27 @@ static const char* getTransferStatusName(TransferStatus status) {
 // Buffer Management
 // ==============================================
 
+static void bufferCompact(void) {
+    if (bufferTail == 0) return;
+    uint16_t pending = bufferHead - bufferTail;
+    if (pending > 0) {
+        memmove(debugBuffer, &debugBuffer[bufferTail], pending);
+    }
+    bufferHead = pending;
+    bufferTail = 0;
+}
+
 static void bufferAppend(const char* str) {
     uint16_t len = strlen(str);
-    uint16_t available = DEBUG_BUFFER_SIZE - bufferHead - 1; // Reserve space for overflow msg
-    
-    if (len > available - sizeof(OVERFLOW_MSG)) {
-        overflowOccurred = true;
-        return;
+
+    // Drain until there's room
+    while (len + sizeof(OVERFLOW_MSG) >= (DEBUG_BUFFER_SIZE - bufferHead)) {
+        bufferCompact();
+        if (len + sizeof(OVERFLOW_MSG) < (DEBUG_BUFFER_SIZE - bufferHead)) break;
+        debugFlush();
+        Serial.flush();
     }
+
     memcpy(&debugBuffer[bufferHead], str, len);
     bufferHead += len;
 }
@@ -110,6 +123,7 @@ void debugInit(void) {
     Serial.println(F("=== DEBUG START ==="));
     Serial.println(F("DIFF\t\t[TYPE] DETAILS\t\t\t\t(STATUS)"));
     Serial.println(F("-----------------------------------------------------------------"));
+    Serial.flush();  // Wait for UART to finish transmitting header
 }
 
 void debugTransition(int from, int to, int status) {
@@ -159,8 +173,6 @@ void debugEventHex(const char* event, uint8_t val) {
     uint16_t len = strlen(event);
 
     // Dynamic padding logic
-    // This aligns the HEX value to the same column regardless of label length
-    // Adjust thresholds (16, 24) if your labels get longer
     if (len < 8) {
         bufferAppend("\t\t\t");
     } else if (len < 16) {
@@ -168,7 +180,7 @@ void debugEventHex(const char* event, uint8_t val) {
     } else if (len < 24) {
         bufferAppend("\t");
     } else {
-        bufferAppend(" "); // Just a space if the label is very long
+        bufferAppend(" ");
     }
 
     bufferAppend(byte_to_hex_str(val));
@@ -191,6 +203,9 @@ void debugFlush(void) {
     if (bufferHead == bufferTail && !overflowOccurred) {
         return;
     }
+
+    // Wait if buffer is getting full
+    if (debugBufferBusy()) { Serial.flush(); }
     
     // Check how much space is available in the Hardware UART buffer
     int available = Serial.availableForWrite();
@@ -227,6 +242,10 @@ void debugFlush(void) {
         bufferHead = 0;
         bufferTail = 0;
     }
+}
+
+bool debugBufferBusy(void) {
+    return (bufferHead - bufferTail) > (DEBUG_BUFFER_SIZE * 3 / 4);
 }
 
 const char* byte_to_hex_str(unsigned char val) {

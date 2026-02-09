@@ -42,6 +42,9 @@ void debugError(const char* error);
 // Flush buffer to Serial (only call when transfer layer is idle)
 void debugFlush(void);
 
+// Buffer is about to overflow
+bool debugBufferBusy(void);
+
 // Check if flush is safe based on transfer status
 // Parameter is int to avoid include dependencies
 bool debugCanFlush(int status);
@@ -59,6 +62,7 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_EVENT_HEX(evt, val)         debugEventHex(evt, val)
 #define DBG_ERROR(error)                debugError(error)
 #define DBG_FLUSH_IF_SAFE(status)       do { if (debugCanFlush((int)(status))) debugFlush(); } while(0)
+#define DBG_BUFFER_BUSY()               debugBufferBusy()
 #define DBG_B_TO_HEX(val)               byte_to_hex_str((unsigned)(char)(val))
 
 #else
@@ -70,6 +74,7 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_EVENT_HEX(msg, val)         ((void)0)
 #define DBG_ERROR(error)                ((void)0)
 #define DBG_FLUSH_IF_SAFE(status)       ((void)0)
+#define DBG_BUFFER_BUSY()               (false)
 #define DBG_B_TO_HEX(val)               ((void)0)
 
 #endif // DEBUG_ENABLED
