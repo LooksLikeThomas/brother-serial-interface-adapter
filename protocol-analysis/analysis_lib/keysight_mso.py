@@ -117,7 +117,7 @@ class KeysightInfiniiVisionMSO:
 
         # 2. Configure Chunk Sizes
         raw_resource.chunk_size = 10 * 1024 * 1024  # 10 MB
-        raw_resource.timeout = 30000                # 30 seconds
+        raw_resource.timeout = 10000                # 30 seconds
 
         # 4. Wrap it
         self.scope = ScpiErrorCheckedResource(raw_resource, check_errors=check_errors)
