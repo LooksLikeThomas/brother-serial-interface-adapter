@@ -1,0 +1,30 @@
+# Brother Typewriters with Interface for IF-50
+
+## JP-16X/JP-16XX Models:
+- Executron, Compactronic, Correctronic
+- CE-50
+- CE-58
+- CE-60
+- CE-65
+- CE-68
+- CE-70
+- Professional 90
+- Professional 100
+
+# Brother Typewriters with Interface for IF-60
+
+## JP-12X
+- AX-20
+
+## JP-16X/JP-16XX Models:
+- PROFESSIONAL 90
+- Professional 400
+- PROFESSIONAL 80
+- Professional 440
+- EM-401
+- EM-411 (CE650)
+
+## JP-18 Models:
+- COMPACTRONIC 350
+- EM-31
+
