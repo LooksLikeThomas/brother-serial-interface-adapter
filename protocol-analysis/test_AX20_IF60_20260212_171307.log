@@ -1,0 +1,112 @@
+// Brother Serial Interface Protocol Test
+// Date: 2026-02-12 17:09:40
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// DIP Switches: 0b11111111111010 (0x3FFA)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: DOWN  UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+
+// 0x00 NUL
+[ 0x00 ] = None
+
+// 0x01 SOH
+[ 0x01 ] = None
+
+// 0x02 STX
+[ 0x02 ] = None
+
+// 0x03 ETX
+[ 0x03 ] = [ 0x00 ]
+
+// 0x04 EOT
+[ 0x04 ] = [ 0x00 ]
+
+// 0x05 ENQ
+[ 0x05 ] = [ 0x00 ]
+
+// 0x06 ACK
+[ 0x06 ] = [ 0x00 ]
+
+// 0x07 BEL
+[ 0x07 ] = [ 0xF5 ]
+
+// 0x08 BS - Backspace
+[ 0x08 ] = [ 0x03 ]
+
+// 0x0A LF - Line Feed
+[ 0x0A ] = [ 0x9F ] // Single LF, does carriage stay at current col?
+[ 0x0A, 0x0A ] = [ 0x9F, 0x9F ] // Two consecutive LFs
+[ 0x0D, 0x0A ] = [ 0x02, 0xB1 ] // CR first, then LF — standard newline order
+[ 0x0A, 0x0D ] = [ 0x9F ] // LF first, then CR — reversed order
+[ 0x0A ] = [ 0x9F ] // LF from col 17, no CR — does col persist?
+[ 0x0D, 0x0D, 0x0D ] = [ 0x9E, 0xB1, 0x9E, 0xB1 ] // Three CRs, no LF — should stay on same line
+
+// 0x0D CR - Carriage Return
+[ 0x0D ] = [ 0x9E, 0xB1 ]
+
+// 0x0E SO - Shift Out
+[ 0x0E ] = None
+
+// 0x0F SI - Shift In
+[ 0x0F ] = None
+
+// 0x10 DLE
+[ 0x10 ] = None
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
+
+// 0x12 DC2
+[ 0x12 ] = None
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF8 ]
+
+// 0x14 DC4
+[ 0x14 ] = None
+
+// 0x15 NAK
+[ 0x15 ] = [ 0x23 ]
+
+// 0x16 SYN
+[ 0x16 ] = None
+
+// 0x17 ETB
+[ 0x17 ] = None
+
+// 0x18 CAN
+[ 0x18 ] = None
+
+// 0x19 EM
+[ 0x19 ] = None
+
+// 0x1A SUB
+[ 0x1A ] = None
+
+// 0x1B ESC (alone)
+[ 0x1B ] = None
+
+// 0x1C FS
+[ 0x1C ] = None
+
+// 0x1D GS
+[ 0x1D ] = None
+
+// 0x1E RS
+[ 0x1E ] = None
+
+// 0x1F US
+[ 0x1F ] = None
