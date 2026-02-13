@@ -4,6 +4,7 @@
 // Typewriter: AX20
 // Keyboard: 2
 // DIP Switches: 0b11111111111000 (0x3FF8)
+// Interface PITCH Selection: 10
 //
 //   1-1: UP    UP=RS-232C, DOWN=CDCC interface
 //   1-2: UP    UP=Terminal mode, DOWN=Printer mode
