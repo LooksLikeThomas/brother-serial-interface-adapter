@@ -1,0 +1,237 @@
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 11:54:59
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+[  ] = [ 0xFE, 0x7F ] ([ 0x00, 0x30 ]) // 5 second capture after power-on
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF8 ]
+
+// Log saved to: test_poweron_select_AX20_IF60_20260213_115522.log
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 11:56:05
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: DOWN  UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+[  ] = [ 0xFE, 0x7F ] ([ 0x00, 0x30 ]) // 5 second capture after power-on
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF8 ]
+
+// Log saved to: test_poweron_select_AX20_IF60_20260213_115628.log
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 12:01:39
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: DOWN  UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: UP    UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+[  ] = [ 0xFE, 0x7F ] ([ 0x00, 0x30 ]) // 5 second capture after power-on
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF8 ]
+
+// Log saved to: test_poweron_select_AX20_IF60_20260213_120200.log
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 12:05:52
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: UP    UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+[  ] = [ 0xFE, 0x7F ] ([ 0x00, 0x30 ]) // 5 second capture after power-on
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF8 ]
+
+// Log saved to: test_poweron_select_AX20_IF60_20260213_120616.log
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 12:07:08
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: UP    UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 12:07:21
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: UP    UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+[  ] = [ 0xFE, 0x7F ] ([ 0x00, 0x30 ]) // 5 second capture after power-on
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF8 ]
+
+// Log saved to: test_poweron_select_AX20_IF60_20260213_120744.log
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 12:10:22
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: UP    UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+[  ] = [ 0xFE, 0x7F ] ([ 0x00, 0x30 ]) // 5 second capture after power-on
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF8 ]
+
+// Log saved to: test_poweron_select_AX20_IF60_20260213_121044.log
+// Brother Serial Interface Protocol Test (POWERON/SELECT/DESELECT)
+// Date: 2026-02-13 12:11:52
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: UP    UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+// Power-On Initialization Capture
+[  ] = [ 0xFE, 0x7F ] ([ 0x00, 0x30 ]) // 5 second capture after power-on
+
+// 0x11 DC1 - SELECT
+[ 0x11 ] = None
+
+// 0x13 DC3 - DESELECT
+[ 0x13 ] = [ 0xF9, 0xFD, 0x7F, 0xF4, 0xB1, 0xB1 ] ([ 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 ])
