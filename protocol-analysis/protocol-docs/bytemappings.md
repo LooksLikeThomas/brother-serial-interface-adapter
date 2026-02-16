@@ -75,7 +75,7 @@ The IF60 has 14 DIP switches in two banks of 6 and one bank of 3 (for baud rate)
 | **1-5** | 12-inch paper | 11-inch paper |
 | **1-6** | Auto skip perforation | No auto skip |
 | **2-1** | Local echo (half-duplex) | No echo (full-duplex) |
-| **2-2** | DC1/DC3 disabled | DC1/DC3 enabled |
+| **2-2** | DC1/DC3 serial select/deselect disabled | DC1/DC3 serial select/deselect enabled |
 | **2-3** | Auto line feed off | Double spacing |
 | **2-4** | 7-bit data | 8-bit data |
 | **2-5** | Even parity | Odd parity |
@@ -123,12 +123,24 @@ The typewriter has a physical 3-position keyboard switch that selects which char
 
 ### Dead Key Handling
 
-On a physical keyboard, dead keys print a character but do not advance the carriage — the user then types a base letter, which overprints to form an accented character (e.g., ´ + e = é). When driven from serial, there is no "next keystroke" to combine with. The IF60 solves this by appending `0x00` (carriage advance) after every dead key character, so the carriage moves forward automatically.
+On a physical keyboard, dead keys print a character but do not advance the carriage — the user then types a base letter, which overprints to form an accented character (e.g., ´ + e = é). When driven from serial, there is no "next keystroke" to combine with, and the typewriter has no bus-level mechanism to disable the dead key behaviour. The IF60 works around this by appending `0x00` (carriage advance) after every dead key character, forcing the carriage to move forward automatically.
 
 **KB3 dead keys** (trailing 0x00 in output):
 `"`, `#`, `'`, `+`, `,`, `.`, `/`, `:`, `;`, `=`, `?`, `@`, `\`, `]`, `` ` ``
 
-Characters using the `[0x88, <pos>, 0x89]` bracket (a separate print mechanism) that are also dead keys get `[0x88, <pos>, 0x89, 0x00]` — the bracket handles printing and 0x00 handles the advance.
+Some characters require the Code modifier to access on the daisy wheel (see "Code Key Simulation" below). When such a character is also a dead key, the output combines both mechanisms independently: `[0x88, <pos>, 0x89, 0x00]` — the `0x88/0x89` framing accesses the Code-layer character and the trailing `0x00` compensates for the dead key. These two features are completely independent: `0x88/0x89` framing occurs whenever a character needs the Code modifier (whether or not it is a dead key), and the trailing `0x00` occurs whenever a character is a dead key (whether or not it requires Code access).
+
+### Code Key Simulation (0x88/0x89)
+
+The typewriter's Code key is a third modifier (alongside Shift) that accesses additional characters printed in green on the keycaps. These are extra glyphs on the daisy wheel that are not reachable through normal or shifted keypresses.
+
+On the physical bus, 0x88 represents the Code key being pressed down and 0x89 represents the Code key being released. When a physical user presses Code+A, the typewriter sends `[0x88, 0x61, 0x89]` on the bus — Code down, the 'a' wheel position, Code up. Multiple keypresses can occur between a single 0x88/0x89 pair if the Code key is held while pressing several keys.
+
+When the IF60 needs to print a character that resides on a Code-accessible wheel position (in the forward serial→bus direction), it simulates a Code keypress by sending `[0x88, <pos>, 0x89]` on the bus. The typewriter interprets this exactly as if someone physically pressed Code and struck that key.
+
+Characters that use Code key simulation in forward translation include positions like `<` on KB1 (`[0x88, 0x58, 0x89]`), `>` on KB1 (`[0x88, 0x56, 0x89]`), and various KB3 punctuation characters. Whether a character requires Code access depends on the physical daisy wheel layout and is independent of whether the character is a dead key.
+
+In the reverse direction (typewriter→serial, §16), 0x88 and 0x89 appear as literal Code key press/release events, and the IF60 uses the enclosed bus bytes to determine which control code or character to send on the serial side.
 
 ### DC1 SELECT Keyboard Identification
 
@@ -195,6 +207,8 @@ Letters A–X and digits 0–9 map identically across all keyboards. The differe
 | 0x7D | `}` | `[0x7C]` | `[0x88,0x57,0x89]` | `[0x26]` |
 | 0x7E | `~` | `[0x2D]` | `[0x3D,0x00]` | `[0x2A]` |
 
+**Note:** Entries shown as `[0x88, <pos>, 0x89]` use Code key simulation to access characters on the daisy wheel that require the Code modifier. Entries with a trailing `0x00` indicate dead key characters where the IF60 appends a carriage advance to compensate for the typewriter's non-advancing dead key behaviour. These two mechanisms are independent.
+
 
 ---
 
@@ -223,7 +237,7 @@ DIP 1-4 tells the interface which physical daisy wheel is installed. When set to
 | 0x7D | `}` | `[0x7C,0x00]` (≈ KB1) | `[0x88,0x57,0x89]` |
 | 0x7E | `~` | `[0x2D]` (= KB1) | `[0x3D,0x00]` |
 
-With DIP 1-4=UP, KB1 and KB2 become nearly identical. The only remaining differences are at 0x40 (`@`) and 0x7D (`}`), where KB2 adds a trailing `0x00` — these positions are dead keys on KB2's physical mechanism even when remapped to KB1's output characters.
+With DIP 1-4=UP, KB1 and KB2 become nearly identical. The only remaining differences are at 0x40 (`@`) and 0x7D (`}`), where KB2 adds a trailing `0x00` — these positions are physically dead keys on KB2's keyboard even when remapped to KB1's output characters, so the IF60 still appends the carriage advance compensation.
 
 In summary: when the ASCII wheel is installed, setting DIP 1-4=UP effectively tells the interface "ignore the KB1/KB2 distinction — they should both use the ASCII mapping."
 
@@ -240,7 +254,11 @@ Only one Printer mode capture exists (KB1, DIP 1-3=UP). The control code and pri
 
 The NAK response changes from a NUL byte to `[0x23]`. This may relate to status reporting in printer mode, or to the spell checker accessory protocol (which would operate in printer mode context).
 
-Per the manual, **Auto Backward Print is the default in Printer Mode** (ESC+/ sets, ESC+\\ clears). When auto backward print is active, the typewriter performs logic seeking (bidirectional printing). Certain ESC sequences (marked with † in §12) cause a carriage return to the left margin and reset to forward printing.
+### Diablo 630 Compatibility
+
+The IF60 manual describes Printer Mode as making the typewriter function as a Diablo-compatible printer. The Diablo 630 was the dominant daisy wheel printer of the 1980s, and its command language became a de facto standard — Diablo emulation was an expected feature on competing daisy wheel printers and even early laser printers. The IF60's ESC sequences share substantial overlap with the Diablo 630 command set: ESC+HT+n (absolute horizontal tab), ESC+LF (reverse line feed), ESC+VT+n (absolute vertical tab), ESC+FF+n (set lines per page), ESC+CR+P (remote reset), auto backward printing (ESC+/ and ESC+\\), bold/shadow print, underscore, and margin control are all present in both protocols.
+
+In Printer Mode, the IF60 does not relay typewriter keyboard data back over serial — data flows one direction (host → IF60 → typewriter) with only protocol responses (ACK, NAK, DC1/DC3) sent back to the host. Per the manual, **Auto Backward Print is the default in Printer Mode** (ESC+/ sets, ESC+\\ clears). When auto backward print is active, the typewriter performs logic seeking (bidirectional printing). Certain ESC sequences (marked with † in §12) cause a carriage return to the left margin and reset to forward printing.
 
 
 ---
@@ -259,6 +277,8 @@ Per the manual, HMI = (n - 1) × 1/120 inch, where n is the parameter value:
 | 12 | 12 cpi | 11 | 10/120 = 1/12 inch | 0xB2 |
 | 15 | 15 cpi | 9 | 8/120 = 1/15 inch | 0xB3 |
 
+**Important:** 0xB1, 0xB2, and 0xB3 are **mode-setting bytes** — they configure the typewriter's step size for all subsequent movement, not movement commands in themselves. When the IF60 sends `[0x9E, <P>]` for CR, the pitch byte tells the typewriter mechanism "each step is now this wide." After that, every 0x00 the typewriter receives moves the carriage by that pitch-dependent amount. The pitch byte is a configuration command, not a motion command.
+
 ### Commands Affected by Pitch
 
 The pitch HMI byte (denoted `<P>` below) appears in these positions:
@@ -271,6 +291,8 @@ The pitch HMI byte (denoted `<P>` below) appears in these positions:
 
 In the SELECT sequence, the **first** `0xB1` is fixed (a "set to default 10cpi" command), and the **second** byte is the active pitch setting. This means SELECT always resets the typewriter's pitch to 10cpi first, then immediately switches to the requested pitch. Per the manual, ESC+S resets HMI to the pitch specified by the PITCH select key.
 
+The pitch byte appears in CR, CR+LF, and SELECT sequences to reassert the pitch mode at line boundaries and during initialization — a defensive "known good state" pattern ensuring the typewriter remains synchronized with the IF60's pitch setting.
+
 ### Commands NOT Affected by Pitch
 
 The following commands produce the **same output** regardless of pitch setting:
@@ -282,24 +304,26 @@ The following commands produce the **same output** regardless of pitch setting:
 | BS (0x08) | `[0x03]` | Backspace is one position regardless |
 | BEL (0x07) | `[0xF5]` | Sound, not movement |
 | DC3 DESELECT | `[0xF8]` | Power-off, no movement |
-| ESC+HT (absolute HT) | `[0x8B, 0x00 × N]` or `[0x8B, 0x03 × N]` | Tab stops use fixed-width 0x00 advance |
 | ESC+VT (absolute VT) | `[0x9F × N]` | Vertical, pitch-independent |
+
+ESC+HT absolute positioning sends `[0x8B, 0x00 × N]` where N = (n - 1). The 0x00 bytes are standard advance steps whose physical width depends on the current pitch. The IF60 sends the same number of bytes regardless of pitch, but the resulting physical position changes because each step covers a different distance at different pitch settings.
 
 ### Margin Repositioning and Pitch
 
-After setting a left margin with ESC+9, the CR command repositions the carriage to the margin. The repositioning sequence uses `0xB1` (10cpi advance) for the margin offset portion regardless of pitch, then appends the current pitch byte:
+After setting a left margin with ESC+9, the CR command repositions the carriage to the margin. The repositioning sequence sends 0x8B (disable underline, defensively) followed by 0x00 advance bytes to step to the margin column:
 
 ```
 CR with left margin at col 17:
-  [0x9E, 0xB1, 0x8B, 0x00×16, 0x00, 0x00, 0x00]
-   └ CR   └ advance └ reposition prefix  └ 16+3 advance steps to margin
+  [0x9E, 0xB1, 0x8B, 0x00 × 16]
+   └ CR   └ pitch  └ underline  └ 16 advance steps (pitch-dependent)
+           └ mode    └ off
 ```
 
-The margin offset is calculated in fixed 10cpi units (0x00 bytes), suggesting margins are stored as absolute positions independent of the current pitch. Per the manual, left margin is set at the present position (ESC+9), and the minimum distance between left and right margins is 24/120 inch.
+Margins are stored as a **column number** (character position), not as an absolute physical distance. The 0x00 bytes in the repositioning sequence are the same pitch-dependent steps as all other movement — each 0x00 advances one position at the current pitch. The physical position of the margin therefore changes with the active pitch. Per the manual, left margin is set at the present position (ESC+9), and the minimum distance between left and right margins is 24/120 inch.
 
 ### Implications
 
-The pitch setting is **not purely cosmetic** — it fundamentally changes the bus protocol for every horizontal movement. Any software emulating the IF60 must track the current pitch setting and substitute the correct HMI byte in all affected sequences. The AX20's space character (0x00) is pitch-independent, but all CR, CR+LF, and SELECT sequences require the correct pitch byte.
+The pitch setting is **not purely cosmetic** — it fundamentally changes the bus protocol for every horizontal movement. Any software emulating the IF60 must track the current pitch setting and substitute the correct HMI byte in all affected sequences. The 0x00 byte always means "advance one position at the current pitch" — the number of 0x00 bytes in a sequence stays the same regardless of pitch, but the physical distance each 0x00 moves the carriage depends on the active pitch mode.
 
 
 ---
@@ -465,7 +489,7 @@ The following DIP switches were individually varied. **None affected the SELECT/
 | 2-2 (DC1/DC3) | UP (Disabled) | No change* |
 | 2-3 (Auto LF) | UP (Auto LF off) | No change |
 
-\* DIP 2-2 UP is labelled "DC1/DC3 disabled", yet the bus-side SELECT/DESELECT sequences still execute normally. This switch likely controls only the **serial-side flow control** (whether the interface sends DC1/DC3 XON/XOFF bytes back to the PC), not the bus-side typewriter control commands.
+\* DIP 2-2 controls whether the IF60 accepts DC1 (0x11) and DC3 (0x13) bytes received from the serial side as SELECT/DESELECT triggers. When UP (disabled), the host cannot remotely select or deselect the interface by sending DC1/DC3 over serial. The bus-side SELECT/DESELECT sequences are unaffected because they are generated by the IF60 internally, not triggered by incoming serial bytes during this test. This switch does not control XON/XOFF flow control — it controls whether serial DC1/DC3 are interpreted as typewriter select/deselect commands.
 
 
 ---
@@ -488,14 +512,14 @@ When a left margin is set, CR no longer returns to column 1. Instead, it returns
 
 ```
 CR with left margin at col 17:
-  [0x9E, 0xB1, 0x8B, 0x00 × 19]
+  [0x9E, 0xB1, 0x8B, 0x00 × 16]
    └ CR to col 0
-         └ advance
-               └ reposition prefix
-                     └ advance steps to reach margin
+         └ pitch mode
+               └ disable underline
+                     └ 16 advance steps to col 17 (1-based)
 ```
 
-The interface sends a full CR to column 0, then uses the `0x8B` repositioning prefix followed by `0x00` advance bytes to move the carriage to the margin position.
+The interface sends a full CR to column 0, then sends 0x8B (disable underline, defensively) followed by 0x00 advance bytes to step the carriage to the margin column. Each 0x00 is one position at the current pitch, so the physical distance to the margin depends on the active pitch.
 
 ### Automatic Line Wrapping at Right Margin
 
@@ -533,14 +557,16 @@ Observed bus output (AX20):
 
 | Command | Input | Output | Notes |
 |---------|-------|--------|-------|
-| HT to col 17 | `[0x1B, 0x09, 0x11]` | `[0x8B, 0x00 × 17]` | 17 advance steps from col 0 |
+| HT to col 17 | `[0x1B, 0x09, 0x11]` | `[0x8B, 0x00 × 16]` | 16 advance steps (column 1 is home, column 17 requires 16 steps) |
 | HT to col 17 (already there) | `[0x1B, 0x09, 0x11]` | None | No movement needed |
 | HT back to col 9 | `[0x1B, 0x09, 0x09]` | `[0x8B, 0x03 × 8]` | 8 backspaces |
 | VT to line 3 | `[0x1B, 0x0B, 0x03]` | `[0x9F, 0x9F]` | 2 line feeds (from line 1) |
 | VT to line 3 (already there) | `[0x1B, 0x0B, 0x03]` | None | No movement needed |
 | VT to line 2 (upward) | `[0x1B, 0x0B, 0x02]` | None | AX20 cannot reverse paper feed |
 
-Tab stop positions use fixed 0x00 advance bytes, not pitch-dependent HMI bytes — positions are in **fixed physical units**, not character-pitch-relative units.
+The `0x8B` byte disables underline mode defensively to prevent drawing an underline during carriage movement. The subsequent `0x00` bytes are standard carriage advance steps — the same byte used for space on the AX20. The number of 0x00 bytes equals (n - 1), consistent with the manual's formula: movement range = (n - 1) × HMI. The physical distance of each 0x00 step depends on the currently active pitch — at 10cpi each step is 1/10 inch, at 12cpi each step is 1/12 inch, at 15cpi each step is 1/15 inch. The IF60 does not perform any pitch calculation; it simply sends (n - 1) advance bytes and the typewriter's mechanism moves by one HMI unit per step.
+
+Tab stop positions use the same 0x00 advance bytes as regular character spacing — their physical width is determined by the current pitch setting, not by a separate fixed-width unit system. The same column number lands at a different physical position depending on the active pitch.
 
 ### Page Length and Page Margins
 
@@ -630,7 +656,7 @@ The interface detects the typewriter model via the power-on handshake response b
 
 ### Key Differences Explained
 
-**Space:** The AX20 uses `0x00` as a simple one-step advance. The CE650 uses `0xB1` — the same byte as the HMI=13 (10cpi) pitch command — making spacing pitch-aware.
+**Space:** The AX20 uses `0x00` as a one-step advance; the CE650 uses `0xB1` (the HMI mode byte). Both are pitch-dependent — the physical width of a 0x00 step depends on the current pitch mode set by the most recent HMI byte, just as 0xB1 explicitly sets 10cpi. The CE650 sends the explicit mode byte with each space rather than relying on the previously set pitch state.
 
 **Carriage Return:** The CE650 inserts `0x8D` (clear enhanced print modes) into every CR sequence. The AX20 doesn't have enhanced print modes, so the interface doesn't send this byte.
 
@@ -678,23 +704,25 @@ The interface detects the typewriter model via the power-on handshake response b
 | Byte | Function | Models |
 |------|----------|--------|
 | **0x20–0x7E** | Strike daisy wheel petal at this position. The byte value corresponds to a physical petal on the wheel, not to ASCII. The IF60 translates ASCII input to the correct wheel position. | Both |
-| **0x88** | Enter dead-key print mode: print the next wheel position byte without advancing the carriage. | Both |
-| **0x89** | Exit dead-key print mode: resume normal advance. Together: `[0x88, <pos>, 0x89]` prints one character then advances. `[0x88, <pos>, 0x89, 0x00]` prints a dead-key character and forces advance via 0x00. | Both |
+| **0x88** | Code key down. In the bus→typewriter direction, engages the Code modifier to access additional wheel characters (green-printed keycap legends). In the typewriter→bus direction, indicates the physical Code key has been pressed. | Both |
+| **0x89** | Code key up. Releases the Code modifier. Together: `[0x88, <pos>, 0x89]` simulates pressing Code + the key at wheel position `<pos>`. Multiple key position bytes can appear between a single 0x88/0x89 pair if Code is held while pressing several keys. When the accessed character is also a dead key, a trailing `0x00` is appended by the IF60 to force carriage advance: `[0x88, <pos>, 0x89, 0x00]`. | Both |
 | **0x7F** | Unmapped character / identification byte. Used inside `[0x88, 0x7F, 0x89]` on CE650. Also appears in DC1/RESET/power-on. | Both |
-| **0x8E** | Shift lock engage (observed on typewriter → bus only; see §16). | Both |
-| **0x8F** | Shift lock release (observed on typewriter → bus only; see §16). | Both |
+| **0x8E** | Repeat last command. When sent to the typewriter, causes the previously received command to be repeated. Used in combination with other commands, e.g., sending `[0x09, 0x8E, 0x8F]` clears all tab stops by repeating the "remove tab" command. Note: the physical Shift Lock key does not produce any bus activity — the Shift and Shift Lock keys are handled entirely within the typewriter's keyboard mechanism and do not appear on the bus. | Both |
+| **0x8F** | End repeat. Terminates the repeat mode initiated by 0x8E. | Both |
 
 #### Horizontal Movement
 
 | Byte | Function | Models |
 |------|----------|--------|
-| **0x00** | Advance carriage one position (fixed step, pitch-independent). Used as space on AX20 and as dead-key advance on both. Also used for absolute HT repositioning steps. | Both |
+| **0x00** | Advance carriage one position at the current pitch. Physical distance depends on the active pitch mode set by the most recent HMI byte (12/120" at 10cpi, 10/120" at 12cpi, 8/120" at 15cpi). Used as space on AX20, as dead-key advance on both models, and for absolute HT and margin repositioning steps. | Both |
 | **0xB1** | Set pitch / advance one HMI unit at 10cpi (HMI=13, 1/10"). Used as space on CE650. Appears in CR, CR+LF, SELECT, and margin repositioning. | Both |
 | **0xB2** | Set pitch / advance one HMI unit at 12cpi (HMI=11, 1/12"). | Both |
 | **0xB3** | Set pitch / advance one HMI unit at 15cpi (HMI=9, 1/15"). | Both |
 | **0x03** | Backspace one position. | Both |
+| **0x04** | Destructive backspace (correction). Moves the carriage back one position and activates the typewriter's correction mechanism (e.g., lift-off tape) to erase the previous character. Compare with 0x03 which moves back without erasing. | Both |
 | **0x9E** | Carriage return — move print head to left margin (or column 0). | Both |
-| **0x8B** | Begin HT/margin repositioning sequence. Followed by advance bytes (0x00 or 0xB1) to reach the target column. Also used for disable underline. | Both |
+| **0x14** | Carriage return variant. Functionally equivalent to 0x9E (returns carriage to column 1 / left margin). Exact distinction from 0x9E is unclear; may relate to margin handling or internal typewriter state. Not generated by the IF60 but recognised by the typewriter. | Both |
+| **0x8B** | Disable underline mode. Also appears before sequences of 0x00 advance bytes used for absolute HT movement and margin repositioning — in these cases, it defensively disables underline to prevent drawing an underline across the page during carriage movement. The movement itself is performed by the subsequent 0x00 bytes, not by 0x8B. | Both |
 
 #### Vertical Movement
 
@@ -702,6 +730,7 @@ The interface detects the typewriter model via the power-on handshake response b
 |------|----------|--------|
 | **0x9F** | Line feed — advance paper one line. Repeated for multiple lines in FF and VT. | Both |
 | **0x02** | Combined line feed + carriage return. Used for CR+LF newline, auto-LF, and automatic line wrapping at right margin. | Both |
+| **0x92** | Newline (CR+LF variant). Returns carriage to left margin and feeds one line. Functionally similar to 0x02 but may differ in margin or formatting behaviour. Not generated by the IF60 but recognised by the typewriter. | Both |
 | **0x06** | Reverse paper feed (up) micro-step. Used for reverse LF (ESC+LF), superscript (ESC+D = reverse 1/12"). | CX only |
 | **0x07** | Forward paper feed (down) micro-step. Used for subscript (ESC+U = 1/12" down). | CX only |
 | **0xA0** | Set VMI to 9 (tightest: 8/48 = 1/6"). Also wraps LF operations on CE650. | CX only |
@@ -714,7 +743,7 @@ The interface detects the typewriter model via the power-on handshake response b
 | Byte | Function | Models |
 |------|----------|--------|
 | **0x8A** | Enable underline mode. | Both |
-| **0x8B** | Disable underline mode. (Same byte as HT repositioning prefix — context-dependent.) | Both |
+| **0x8B** | Disable underline mode. See horizontal movement entry above for use in repositioning sequences. | Both |
 | **0x8C** | Enable enhanced print mode: bold (ESC+O), shadow (ESC+W), or double-strike (ESC+F). Same byte for all three. | CX only |
 | **0x8D** | Clear all enhanced print modes. Sent as part of every CR on CE650, resetting formatting per line. Also cleared by ESC+&. | CX only |
 
@@ -824,10 +853,11 @@ Three distinct bus patterns were observed for keystrokes:
 | Pattern | Meaning | Example |
 |---------|---------|---------|
 | `( 0xNN )` | Normal keystroke — single wheel position byte | `( 0x61 )` = lowercase 'a' position |
-| `( 0x88, 0xNN, 0x89 )` | Code+key — dead-key bracket around a control byte | `( 0x88, 0x61, 0x89 )` = Code+'a' |
-| `( 0x8E, 0x8F )` | Shift Lock toggle | Shift Lock key |
+| `( 0x88, 0xNN, 0x89 )` | Code+key — Code modifier key held (0x88 = down, 0x89 = up) around one or more key position bytes | `( 0x88, 0x61, 0x89 )` = Code+'a' |
 
-The `0x88`/`0x89` bracket for Code+key is the same dead-key print mechanism used in the forward direction. Shift does not produce its own bus framing — it changes which wheel position byte the typewriter sends (e.g., `0x61` for 'a' becomes `0x41` for Shift+'a').
+**Note:** The physical Shift and Shift Lock keys do not produce any bus activity. Shift state changes are handled entirely within the typewriter's keyboard mechanism. The bytes 0x8E and 0x8F observed in some contexts are repeat/end-repeat commands (see §14), not Shift Lock events.
+
+Shift does not produce its own bus framing — it changes which wheel position byte the typewriter sends (e.g., `0x61` for 'a' becomes `0x41` for Shift+'a').
 
 ### 16.4 Keys That Produce No Serial Output
 
@@ -840,7 +870,8 @@ Several keys generate bus activity but the IF60 does not translate them to seria
 | 0x0C | Correction / erase |
 | 0x08 | Half-space or micro-step |
 | 0x09 | Index / express key |
-| 0x8E, 0x8F | Shift Lock toggle |
+
+**Note:** The Shift Lock key does not produce any bus activity and therefore does not appear in this table. Shift state is handled internally by the typewriter's keyboard mechanism.
 
 Code+key versions of non-translating keys also produce no serial output.
 
@@ -1077,13 +1108,12 @@ The AX20 returns a 6-byte status with the keyboard ID in byte 3. The CE650 retur
 
 - **0xFD**: Exact function unknown. Always appears near 0x7F in SELECT, RESET, and power-on. Likely a status query or handshake.
 - **0xFE**: Confirmed as a power-on initialization command. Can it be sent at any time to re-identify the typewriter, or is it strictly a boot-time operation?
-- **0x8B dual role**: This byte serves as both "disable underline" and "begin HT repositioning." Context-dependent, or is there a subtle distinction we're missing?
 - **DIP 1-4 + KB3**: No test with KB3 and DIP 1-4=UP. Does the symbol layout also collapse to KB1 when the ASCII wheel is set, or does it remain independent?
-- **Pitch and Space (AX20)**: The AX20 uses 0x00 for space regardless of pitch. Does this mean AX20 spaces are always the same physical width, or does the AX20's mechanism inherently advance by the current pitch setting on any 0x00?
+- **Pitch and Space (AX20)**: On the AX20, 0x00 advances one HMI unit at the current pitch. The pitch byte (0xB1/B2/B3) sets the step size, and all subsequent 0x00 steps use that size. The remaining question is whether the AX20 mechanism physically varies its step size when the pitch mode byte changes, or whether the mechanism has a single fixed step. Physical measurement would confirm.
 - **Pitch and SELECT (CE650)**: Does the CE650 SELECT sequence also end with a pitch-dependent byte? Need a CE650 capture at non-default pitch.
 - **Triple CR behaviour**: Why are two CRs output before the third is suppressed? Is the second CR meaningful, or is this a pipeline delay in position tracking?
-- **Margin storage**: Margins appear to be stored in fixed 0x00-step units. What is the physical width of one 0x00 step? Is it always 1/10 inch (matching 10cpi), or a smaller unit?
 - **CE650 printable characters**: The CE650 capture had noise issues. A clean recapture would confirm whether the CE650's wheel position mapping differs from the AX20's.
-- **Spell checker protocol**: If the US-market spell checker accessory used ETX/EOT/ENQ/ACK/NAK, what was the full handshake sequence?
-- **0xF2 (CE650 motor control)**: Is this specifically the paper feed motor? Does it have parameters, or is it purely on/off?
-- **Interface PITCH selection**: The test headers show pitch values of 10 and 15. How does this interact with the HMI ESC sequences? Is it set via the typewriter's front panel or through the IF60?
+- **Spell checker / ETX/ACK protocol**: If the US-market spell checker accessory used ETX/EOT/ENQ/ACK/NAK, what was the full handshake sequence? Alternatively, if DIP 1-3 controls Diablo 630 ETX/ACK mode, what host-side software required this?
+- **0xF2 (CE650 control)**: Is this specifically the paper feed motor? Does it have parameters, or is it purely on/off?
+- **0x14 and 0x92**: These additional CR and newline bus bytes are recognized by the typewriter but not generated by the IF60. What are the exact behavioral differences from 0x9E and 0x02? Are they related to margin handling or formatting state?
+- **0x8E/0x8F (repeat/end-repeat)**: What commands can be repeated? Is only the immediately preceding command eligible, or can 0x8E repeat a longer sequence? Are there limits to the repeat count?
