@@ -103,12 +103,13 @@ static const bool DC_CONTROL = true; // TODO: NOT IMPLEMENTED
 //
 // false = Auto line feed off (Standard single spacing)
 // true  = Auto line feed on (Double spacing)
-static const bool AUTO_LINE_FEED = false; // TODO: NOT IMPLEMENTED
+static const bool AUTO_LINE_FEED = false;
 
 // Printing Pitch (Characters Per Inch)
 // Controls horizontal character density.
-// Options: 6, 10, 12, 15
-static const int PRINTING_PITCH = 10; // TODO: NOT IMPLEMENTED
+// #define PITCH_BYTE 0xB2  // 12cpi
+// #define PITCH_BYTE 0xB3  // 15cpi
+#define PITCH_BYTE 0xB1     // 10cpi (default)
 
 // Line Pitch (Line Spacing)
 // Controls vertical line spacing density.

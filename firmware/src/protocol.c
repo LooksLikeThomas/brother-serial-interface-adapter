@@ -64,6 +64,8 @@ static void protocolReset(Protocol *ps) {
     ps->keyboardID = KEYBOARD_KB1;
     ps->fwdLen = 0;
     ps->fwdIdx = 0;
+    ps->swallowNextLf = false;
+    ps->pitchByte = PITCH_BYTE;
 }
 
 // ==============================================
@@ -435,11 +437,11 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     }
                     break;
                 
-                // ----- Send Pitch Again (0xB1) -----
+                // ----- Send Active Pitch -----
                 case SEL_QUEUE_PITCH2:
                     if (status == TS_STATUS_IDLE) {
-                        DBG_EVENT_HEX("SELECT: QUEUE PITCH2", 0xB1);
-                        transferQueueSI(ts, 0xB1);
+                        DBG_EVENT_HEX("SELECT: QUEUE ACTIVE PITCH", ps->pitchByte);
+                        transferQueueSI(ts, ps->pitchByte);
                         ps->selectState = SEL_WAIT_PITCH2;
                     }
                     break;
@@ -535,6 +537,47 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     return PS_STATUS_DESELECTING;
                 }
 
+                // ----- ACTION: Swallow redundant LF after auto-LF CR -----
+                // Guard: LF byte AND swallowNextLf flag set
+                // 
+                // When auto-LF is enabled, CR already emits the combined
+                // CR+LF command (0x02). A subsequent LF is swallowed.
+                //
+                if (si_byte == 0x0A && ps->swallowNextLf) {
+                    siBufferPop(&si_byte);
+                    ps->swallowNextLf = false;
+                    DBG_EVENT("LF SWALLOWED (AUTO-LF)");
+                    return PS_STATUS_ONLINE;
+                }else{
+                    ps->swallowNextLf = false;
+                }
+
+
+                // ----- ACTION: Carriage Return -----
+                // Guard: CR byte (0x0D)
+                // Appends pitch byte <P> to reassert HMI mode at line boundaries.
+                //
+                if (si_byte == 0x0D) {
+                    siBufferPop(&si_byte);
+                    if (ps->autoLfEnabled) {
+                        // Auto-LF: combined CR+LF, swallow redundant following LF
+                        DBG_EVENT("CR+AUTO-LF");
+                        fwdBufLoad(ps, result2(0x02, ps->pitchByte));
+                        ps->swallowNextLf = true;
+                    } else if (!siBufferEmpty() && siBufferPeek() == 0x0A) {
+                        // CR+LF in buffer: combine into single bus command
+                        uint8_t lf;
+                        siBufferPop(&lf);
+                        DBG_EVENT("CR+LF");
+                        fwdBufLoad(ps, result2(0x02, ps->pitchByte));
+                    } else {
+                        // Standalone CR: return to margin, no line feed
+                        DBG_EVENT("CR");
+                        fwdBufLoad(ps, result2(0x9E, ps->pitchByte));
+                    }
+                    return PS_STATUS_ONLINE;
+                }
+
                 // Consume and translate
                 siBufferPop(&si_byte);
                 TranslateResult r = translateSerialToBus(si_byte, ps->keyboardID);
@@ -546,7 +589,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 }
 
                 // Load into forward buffer — will be drained starting next cycle
-                fwdBufLoadResult(ps, &r);
+                fwdBufLoad(ps, r);
                 DBG_EVENT_HEX_CHAR("SI TRANSLATED", si_byte);
                 return PS_STATUS_ONLINE;
             }

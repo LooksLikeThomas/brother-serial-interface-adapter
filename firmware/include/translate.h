@@ -32,6 +32,32 @@ typedef struct {
     uint8_t len;          // 0 = swallowed, 1–4 = output bytes
 } TranslateResult;
 
+
+// ==============================================
+// Helper: Build a TranslateResult
+// ==============================================
+
+static inline TranslateResult result0(void) {
+    return (TranslateResult){ .bytes = {0, 0}, .len = 0 };
+}
+
+static inline TranslateResult result1(uint8_t b) {
+    return (TranslateResult){ .bytes = {b, 0}, .len = 1 };
+}
+
+static inline TranslateResult result2(uint8_t b0, uint8_t b1) {
+    return (TranslateResult){ .bytes = {b0, b1}, .len = 2 };
+}
+
+static inline TranslateResult result3(uint8_t b0, uint8_t b1, uint8_t b2) {
+    return (TranslateResult){ .bytes = {b0, b1, b2, 0}, .len = 3 };
+}
+
+static inline TranslateResult result4(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3) {
+    return (TranslateResult){ .bytes = {b0, b1, b2, b3}, .len = 4 };
+}
+
+
 // ==============================================
 // Reverse Translation (Typewriter → Serial)
 // ==============================================
