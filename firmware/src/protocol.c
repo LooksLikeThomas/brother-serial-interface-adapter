@@ -63,9 +63,7 @@ static void protocolReset(Protocol *ps) {
     ps->codePressed = false;
     ps->autoLfEnabled = AUTO_LINE_FEED;
     ps->keyboardID = KEYBOARD_KB1;
-    ps->action.len = 0;
-    ps->action.idx = 0;
-    ps->action.htDelta = 0;
+    bsbClear(&ps->bsb);
     ps->swallowNextLf = false;
     ps->pitchByte = PITCH_BYTE;
     ps->column = 1;
@@ -512,12 +510,10 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // TS_STATUS_SO_DONE (not IDLE), so this block is skipped and the
             // SO_DONE handler below processes the received byte.
             //
-            if (status == TS_STATUS_IDLE && actionHasData(&ps->action)) {
-                uint8_t b = actionNextByte(&ps->action);
-                if (transferQueueSI(ts, b)) {
-                    ps->column += actionStep(&ps->action);
-                    DBG_EVENT_HEX("SI QUEUED", b);
-                }
+            if (status == TS_STATUS_IDLE && bsbHasData(&ps->bsb)) {
+                uint8_t b = bsbNext(&ps->bsb);
+                transferQueueSI(ts, b);
+                DBG_EVENT_HEX("SI QUEUED", b);
                 return PS_STATUS_ONLINE;
             }
 
@@ -530,7 +526,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // buffer; the first byte is sent immediately, the rest will be
             // drained by the block above on subsequent loop iterations.
             //
-            if (status == TS_STATUS_IDLE && !actionHasData(&ps->action) && !siBufferEmpty()) {
+            if (status == TS_STATUS_IDLE && !bsbHasData(&ps->bsb) && !siBufferEmpty()) {
                 uint8_t si_byte = siBufferPeek();
 
                 // DC3 → begin DESELECT (consumed but not translated)
@@ -561,25 +557,31 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 // ----- ACTION: Carriage Return -----
                 // Guard: CR byte (0x0D)
                 // Appends pitch byte <P> to reassert HMI mode at line boundaries.
+                // Followed by margin repositioning (0x8B + 0x00 × (leftMargin-1)) if needed.
                 //
                 if (si_byte == 0x0D) {
                     siBufferPop(&si_byte);
+                    bsbClear(&ps->bsb);
+
                     if (ps->autoLfEnabled) {
-                        // Auto-LF: combined CR+LF, swallow redundant following LF
                         DBG_EVENT("CR+AUTO-LF");
-                        actionLoad(&ps->action, result2(0x02, ps->pitchByte), 0);
+                        bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
                         ps->swallowNextLf = true;
                     } else if (!siBufferEmpty() && siBufferPeek() == 0x0A) {
-                        // CR+LF in buffer: combine into single bus command
                         uint8_t lf;
                         siBufferPop(&lf);
                         DBG_EVENT("CR+LF");
-                        actionLoad(&ps->action, result2(0x02, ps->pitchByte), 0);
+                        bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
                     } else {
-                        // Standalone CR: return to margin, no line feed
                         DBG_EVENT("CR");
-                        actionLoad(&ps->action, result2(0x9E, ps->pitchByte), 0);
+                        bsbAddByte2(&ps->bsb, 0x9E, ps->pitchByte);
                     }
+
+                    if (ps->leftMargin > 1) {
+                        bsbAddByte(&ps->bsb, 0x8B);
+                        bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
+                    }
+
                     ps->column = ps->leftMargin;
                     return PS_STATUS_ONLINE;
                 }
@@ -589,7 +591,16 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 // Character stays in siBuffer; CR+LF drains first, then it's retranslated.
                 //
                 if (si_byte >= 0x20 && si_byte <= 0x7E && ps->column > ps->rightMargin) {
-                    actionLoad(&ps->action, result2(0x02, ps->pitchByte), 0);
+                    bsbClear(&ps->bsb);
+                    bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
+
+                    // Reposition to left margin: 0x8B disables underline defensively,
+                    // then 0x00 × N steps carriage to leftMargin column.
+                    if (ps->leftMargin > 1) {
+                        bsbAddByte(&ps->bsb, 0x8B);
+                        bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
+                    }
+
                     ps->column = ps->leftMargin;
                     DBG_EVENT("AUTO WRAP");
                     return PS_STATUS_ONLINE;
@@ -614,8 +625,11 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     return PS_STATUS_ONLINE;
                 }
 
-                // Load into action — will be drained starting next cycle
-                actionLoad(&ps->action, r, serialHtDelta(si_byte));
+                // Load into BSB — will be drained starting next cycle
+                // Column is updated now: one serial byte always equals one column movement.
+                bsbClear(&ps->bsb);
+                bsbAddResult(&ps->bsb, r);
+                ps->column += serialHtDelta(si_byte);
                 DBG_EVENT_HEX_CHAR("SI TRANSLATED", si_byte);
                 return PS_STATUS_ONLINE;
             }
