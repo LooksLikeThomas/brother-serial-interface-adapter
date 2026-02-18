@@ -26,6 +26,14 @@ static inline TranslateResult result2(uint8_t b0, uint8_t b1) {
     return (TranslateResult){ .bytes = {b0, b1}, .len = 2 };
 }
 
+static inline TranslateResult result3(uint8_t b0, uint8_t b1, uint8_t b2) {
+    return (TranslateResult){ .bytes = {b0, b1, b2, 0}, .len = 3 };
+}
+
+static inline TranslateResult result4(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3) {
+    return (TranslateResult){ .bytes = {b0, b1, b2, b3}, .len = 4 };
+}
+
 // ==============================================
 // Non-Translating Keys
 // ==============================================
@@ -54,6 +62,172 @@ static inline TranslateResult kbSelect(uint8_t keyboard,
         case KEYBOARD_KB2: return result1(kb2);
         case KEYBOARD_KB3: return result1(kb3);
         default:           return result0();
+    }
+}
+
+// ==============================================
+// Forward Translation (Serial → Typewriter Bus)
+// ==============================================
+//
+// Switch on serial byte for compiler-optimized dispatch.
+// Keyboard-dependent entries use kbSelect().
+// Multi-byte outputs use Code key simulation (0x88/0x89 framing)
+// and/or dead key compensation (trailing 0x00).
+//
+// Control codes handled here are limited to simple 1:1 mappings
+// (BS, LF, BEL). CR, CR+LF combining, and ESC sequences require
+// protocol-level state and are handled in protocol.c.
+//
+// Space is mapped to 0x00 (AX20 carriage advance).
+// CE650 would need 0xB1 instead — requires device-type awareness.
+//
+TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
+
+    // --- Control codes ---
+    switch (serialByte) {
+        case 0x07: return result1(0xF5);        // BEL
+        case 0x08: return result1(0x03);        // BS
+        case 0x0A: return result1(0x9F);        // LF
+        // CR and CR+LF combining handled in protocol.c
+        // DC1, DC3 handled in protocol.c
+        default: break;
+    }
+
+    // --- Printable characters (0x20-0x7E) ---
+    if (serialByte < 0x20 || serialByte > 0x7E)
+        return result0();  // swallow unknown control codes for now
+
+    switch (serialByte) {
+
+        // --- Characters identical across all keyboards ---
+        // Digits 0-9: identity
+        // Letters a-x, A-X: identity (except those listed below)
+
+        // --- Y/Z swap (QWERTZ on KB1/KB2) ---
+        case 0x59: return kbSelect(keyboard, 0x5A, 0x5A, 0x59); // Y
+        case 0x5A: return kbSelect(keyboard, 0x59, 0x59, 0x5A); // Z
+        case 0x79: return kbSelect(keyboard, 0x7A, 0x7A, 0x79); // y
+        case 0x7A: return kbSelect(keyboard, 0x79, 0x79, 0x7A); // z
+
+        // --- KB3 letter/symbol remaps ---
+        case 0x40: // @
+            if (keyboard == KEYBOARD_KB3) return result2(0x66, 0x00);
+            return kbSelect(keyboard, 0x23, 0x2D, 0);
+        case 0x5B: // [
+            if (keyboard == KEYBOARD_KB1) return result1(0x22);
+            if (keyboard == KEYBOARD_KB2) return result1(0x7B);
+            return result1(0x6A);
+        case 0x5C: // backslash
+            if (keyboard == KEYBOARD_KB1) return result1(0x3A);
+            if (keyboard == KEYBOARD_KB2) return result3(0x88, 0x58, 0x89);
+            return result2(0x5C, 0x00);
+        case 0x5D: // ]
+            if (keyboard == KEYBOARD_KB1) return result1(0x7B);
+            if (keyboard == KEYBOARD_KB2) return result1(0x3A);
+            return result2(0x2F, 0x00);
+        case 0x5E: // ^
+            if (keyboard == KEYBOARD_KB1) return result3(0x88, 0x57, 0x89);
+            if (keyboard == KEYBOARD_KB2) return result2(0x23, 0x00);
+            return result1(0x25);
+        case 0x5F: // _
+            return kbSelect(keyboard, 0x3F, 0x3F, 0x2E);
+
+        case 0x21: // !
+            if (keyboard == KEYBOARD_KB3) return result3(0x88, 0x56, 0x89);
+            return result1(0x21);
+        case 0x22: // "
+            if (keyboard == KEYBOARD_KB3) return result2(0x22, 0x00);
+            return result1(0x40);
+        case 0x23: // #
+            if (keyboard == KEYBOARD_KB1) return result1(0x5C);
+            if (keyboard == KEYBOARD_KB2) return result1(0x27);
+            return result2(0x76, 0x00);
+        case 0x24: // $
+            return kbSelect(keyboard, 0x24, 0x24, 0x21);
+        case 0x25: // %
+            return kbSelect(keyboard, 0x25, 0x25, 0x28);
+        case 0x26: // &
+            return kbSelect(keyboard, 0x20, 0x20, 0x23);
+        case 0x27: // '
+            if (keyboard == KEYBOARD_KB3) return result2(0x27, 0x00);
+            return result1(0x60);
+        case 0x28: // (
+            return kbSelect(keyboard, 0x2A, 0x2A, 0x29);
+        case 0x29: // )
+            return kbSelect(keyboard, 0x28, 0x28, 0x2C);
+        case 0x2A: // *
+            return kbSelect(keyboard, 0x5B, 0x5B, 0x24);
+        case 0x2B: // +
+            if (keyboard == KEYBOARD_KB3) return result2(0x2B, 0x00);
+            return result1(0x5D);
+        case 0x2C: // ,
+            if (keyboard == KEYBOARD_KB3) return result4(0x88, 0x5A, 0x89, 0x00);
+            return result1(0x2C);
+        case 0x2D: // -
+            return kbSelect(keyboard, 0x2F, 0x2F, 0x3F);
+        case 0x2E: // .
+            if (keyboard == KEYBOARD_KB3) return result4(0x88, 0x58, 0x89, 0x00);
+            return result1(0x2E);
+        case 0x2F: // /
+            if (keyboard == KEYBOARD_KB3) return result2(0x2D, 0x00);
+            return result1(0x26);
+
+        case 0x3A: // :
+            if (keyboard == KEYBOARD_KB3) return result2(0x3A, 0x00);
+            return result1(0x3E);
+        case 0x3B: // ;
+            if (keyboard == KEYBOARD_KB3) return result2(0x3B, 0x00);
+            return result1(0x3C);
+        case 0x3C: // 
+            if (keyboard == KEYBOARD_KB1) return result3(0x88, 0x58, 0x89);
+            if (keyboard == KEYBOARD_KB2) return result1(0x22);
+            return result3(0x88, 0x59, 0x89);
+        case 0x3D: // =
+            if (keyboard == KEYBOARD_KB3) return result2(0x3D, 0x00);
+            return result1(0x29);
+        case 0x3E: // >
+            if (keyboard == KEYBOARD_KB1) return result3(0x88, 0x56, 0x89);
+            if (keyboard == KEYBOARD_KB2) return result1(0x3B);
+            return result3(0x88, 0x55, 0x89);
+        case 0x3F: // ?
+            if (keyboard == KEYBOARD_KB3) return result2(0x5F, 0x00);
+            return result1(0x5F);
+
+        case 0x60: // `
+            if (keyboard == KEYBOARD_KB3) return result2(0x60, 0x00);
+            return result2(0x2B, 0x00);
+
+        case 0x66: // f
+            if (keyboard == KEYBOARD_KB3) return result1(0x4A);
+            return result1(0x66);
+        case 0x6A: // j
+            if (keyboard == KEYBOARD_KB3) return result1(0x7C);
+            return result1(0x6A);
+        case 0x76: // v
+            if (keyboard == KEYBOARD_KB3) return result1(0x40);
+            return result1(0x76);
+
+        case 0x7B: // {
+            return kbSelect(keyboard, 0x27, 0x5C, 0x5B);
+        case 0x7C: // |
+            if (keyboard == KEYBOARD_KB1) return result1(0x3B);
+            if (keyboard == KEYBOARD_KB2) return result3(0x88, 0x56, 0x89);
+            return result1(0x5D);
+        case 0x7D: // }
+            if (keyboard == KEYBOARD_KB1) return result1(0x7C);
+            if (keyboard == KEYBOARD_KB2) return result3(0x88, 0x57, 0x89);
+            return result1(0x26);
+        case 0x7E: // ~
+            if (keyboard == KEYBOARD_KB1) return result1(0x2D);
+            if (keyboard == KEYBOARD_KB2) return result2(0x3D, 0x00);
+            return result1(0x2A);
+
+        case 0x4A: // J
+            if (keyboard == KEYBOARD_KB3) return result1(0x7B);
+            return result1(0x4A);
+
+        // --- Identity: digits, common letters, space ---
+        default: return result1(serialByte);
     }
 }
 

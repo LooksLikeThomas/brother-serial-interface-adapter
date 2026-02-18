@@ -62,6 +62,8 @@ static void protocolReset(Protocol *ps) {
     ps->codePressed = false;
     ps->autoLfEnabled = AUTO_LINE_FEED;
     ps->keyboardID = KEYBOARD_KB1;
+    ps->fwdLen = 0;
+    ps->fwdIdx = 0;
 }
 
 // ==============================================
@@ -492,16 +494,40 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 return PS_STATUS_OFFLINE;
             }
             
-            // ----- ACTION: Check next byte from buffer -----
-            // Guard: Idle and siBuffer has data
-            if (status == TS_STATUS_IDLE && !siBufferEmpty()) {
+            // ----- ACTION: Drain forward buffer -----
+            // Guard: Transfer layer idle AND forward buffer has pending bytes
+            // 
+            // Multi-byte translations (e.g. Code key simulation [0x88, pos, 0x89])
+            // are loaded into fwdBuf and sent one byte per transfer cycle.
+            // This block drains those bytes before translating new serial input.
+            //
+            // Safe to return early: if a typewriter byte arrives, status will be
+            // TS_STATUS_SO_DONE (not IDLE), so this block is skipped and the
+            // SO_DONE handler below processes the received byte.
+            //
+            if (status == TS_STATUS_IDLE && fwdBufHasData(ps)) {
+                uint8_t b = ps->fwdBuf[ps->fwdIdx];
+                if (transferQueueSI(ts, b)) {
+                    ps->fwdIdx++;
+                    DBG_EVENT_HEX("SI QUEUED", b);
+                }
+                return PS_STATUS_ONLINE;
+            }
+
+            // ----- ACTION: Translate next serial byte -----
+            // Guard: Transfer layer idle AND forward buffer fully drained AND siBuffer has data
+            //
+            // Peeks at the next serial byte to check for protocol control (DC3),
+            // then translates printable/control bytes into bus byte(s) via
+            // translateSerialToBus(). The result is loaded into the forward
+            // buffer; the first byte is sent immediately, the rest will be
+            // drained by the block above on subsequent loop iterations.
+            //
+            if (status == TS_STATUS_IDLE && !fwdBufHasData(ps) && !siBufferEmpty()) {
                 uint8_t si_byte = siBufferPeek();
 
-                // ----- TRANSITION: DC3 received from PC -----
-                // Guard: si_byte is DC3 (0x13)
-                // Action: Consume DC3, begin DESELECT sequence
+                // DC3 → begin DESELECT (consumed but not translated)
                 if (si_byte == 0x13) {
-                    uint8_t si_byte;
                     siBufferPop(&si_byte);
                     DBG_EVENT("DC3 RECEIVED - START DESELECT");
                     ps->deselectState = DESEL_QUEUE;
@@ -509,16 +535,19 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     return PS_STATUS_DESELECTING;
                 }
 
-                
-                // Action: Queue byte to transfer layer
-                // TODO: Replace with forward translation (translateChar / translateControlCode)
-                if (transferQueueSI(ts, si_byte)) {
-                    DBG_EVENT_HEX("SI QUEUED", si_byte);
-                    siBufferPop(&si_byte);
-                }else{
-                    DBG_ERROR("QUEUED BYTE COLLISION");
+                // Consume and translate
+                siBufferPop(&si_byte);
+                TranslateResult r = translateSerialToBus(si_byte, ps->keyboardID);
+
+                // Unknown or swallowed byte (e.g. unsupported control codes)
+                if (r.len == 0) {
+                    DBG_EVENT_HEX("SI SWALLOWED", si_byte);
+                    return PS_STATUS_ONLINE;
                 }
 
+                // Load into forward buffer — will be drained starting next cycle
+                fwdBufLoadResult(ps, &r);
+                DBG_EVENT_HEX_CHAR("SI TRANSLATED", si_byte);
                 return PS_STATUS_ONLINE;
             }
             

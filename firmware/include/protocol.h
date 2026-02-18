@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "transfer.h"
+#include "translate.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,7 +108,28 @@ typedef struct {
     bool autoLfEnabled;         // Set via config or ESC Sequence. Adds LF after CR
     uint8_t keyboardID;         // From SELECT response byte 3 (0x04/0x24/0x44)
     
+    // Forward path state and buffer (typewriter → serial)
+    uint8_t fwdBuf[4];
+    uint8_t fwdLen;
+    uint8_t fwdIdx;
 } Protocol;
+
+// Protocol forward Buffer Helper functions:
+static inline bool fwdBufHasData(const Protocol *ps) {
+    return ps->fwdIdx < ps->fwdLen;
+}
+
+static inline void fwdBufLoadResult(Protocol *ps, const TranslateResult *r) {
+    for (uint8_t i = 0; i < r->len; i++) {
+        ps->fwdBuf[i] = r->bytes[i];
+    }
+    ps->fwdLen = r->len;
+    ps->fwdIdx = 0;
+}
+
+static inline uint8_t fwdBufNext(Protocol *ps) {
+    return ps->fwdBuf[ps->fwdIdx++];
+}
 
 // ==============================================
 // Public API

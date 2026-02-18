@@ -28,8 +28,8 @@ extern "C" {
 // multi-byte serial sequences (like ESC+Y).
 //
 typedef struct {
-    uint8_t bytes[2];
-    uint8_t len;          // 0 = swallowed, 1–2 = output bytes
+    uint8_t bytes[4];
+    uint8_t len;          // 0 = swallowed, 1–4 = output bytes
 } TranslateResult;
 
 // ==============================================
@@ -59,6 +59,29 @@ TranslateResult translateNormalBusToSerial(uint8_t busByte, uint8_t keyboard);
 //   keyboard — KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
 //
 TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard);
+
+
+// ==============================================
+// Forward Translation (Serial → Typewriter Bus)
+// ==============================================
+
+// Translate a serial byte from the PC into bus byte(s)
+// for the typewriter.
+//
+// Handles printable characters (0x20–0x7E) including
+// keyboard-dependent remapping, Code key simulation
+// (0x88/0x89 framing), and dead key compensation (trailing 0x00).
+// Also handles simple control codes (BS, LF, BEL).
+//
+// CR, CR+LF combining, and ESC sequences are NOT handled here —
+// they require protocol-level state (pitch, lookahead) and are
+// handled in protocol.c.
+//
+// Parameters:
+//   serialByte — the ASCII byte received from the PC
+//   keyboard   — KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
+//
+TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard);
 
 // ==============================================
 // Utility Functions
