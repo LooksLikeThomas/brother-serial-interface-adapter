@@ -6,6 +6,7 @@
 #if DEBUG_ENABLED
 
 #include <Arduino.h>
+#include <avr/pgmspace.h>
 #include <string.h>
 #include "transfer.h"
 #include "protocol.h"
@@ -86,6 +87,18 @@ static void bufferAppend(const char* str) {
     bufferHead += len;
 }
 
+static void bufferAppend_P(const char* pstr) {
+    uint16_t len = strlen_P(pstr);
+    while (len + sizeof(OVERFLOW_MSG) >= (DEBUG_BUFFER_SIZE - bufferHead)) {
+        bufferCompact();
+        if (len + sizeof(OVERFLOW_MSG) < (DEBUG_BUFFER_SIZE - bufferHead)) break;
+        debugFlush();
+        Serial.flush();
+    }
+    memcpy_P(&debugBuffer[bufferHead], pstr, len);
+    bufferHead += len;
+}
+
 static void bufferAppendNumber(uint32_t num) {
     char numStr[12];  // Max 10 digits + sign + null
     ltoa(num, numStr, 10);
@@ -160,17 +173,17 @@ void debugTransition(int from, int to, int status) {
 void debugEvent(const char* event) {
     bufferAppendTimestamp();
     bufferAppend("[EVENT] ");
-    bufferAppend(event);
+    bufferAppend_P(event);
     bufferAppend("\r");
 }
 
 void debugEventHex(const char* event, uint8_t val) {
     bufferAppendTimestamp();
     bufferAppend("[EVENT] ");
-    bufferAppend(event);
+    bufferAppend_P(event);
 
     // Calculate length of the label to determine padding
-    uint16_t len = strlen(event);
+    uint16_t len = strlen_P(event);
 
     // Dynamic padding logic
     if (len < 8) {
@@ -190,10 +203,10 @@ void debugEventHex(const char* event, uint8_t val) {
 void debugEventHexChar(const char* event, uint8_t val) {
     bufferAppendTimestamp();
     bufferAppend("[EVENT] ");
-    bufferAppend(event);
+    bufferAppend_P(event);
 
     // Calculate length of the label to determine padding
-    uint16_t len = strlen(event);
+    uint16_t len = strlen_P(event);
 
     // Dynamic padding logic 
     if (len < 8) {
@@ -219,7 +232,7 @@ void debugEventHexChar(const char* event, uint8_t val) {
 void debugError(const char* error) {
     bufferAppendTimestamp();
     bufferAppend("[ERROR] !!");
-    bufferAppend(error);
+    bufferAppend_P(error);
     bufferAppend("\r");
 }
 

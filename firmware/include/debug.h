@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <avr/pgmspace.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,10 +62,10 @@ const char* byte_to_hex_str(unsigned char val);
 // Macros for easy enable/disable
 #define DBG_INIT()                      debugInit()
 #define DBG_TRANSITION(from, to, st)    debugTransition((int)(from), (int)(to), (int)(st))
-#define DBG_EVENT(evt)                  debugEvent(evt)
-#define DBG_EVENT_HEX(evt, val)         debugEventHex(evt, val)
-#define DBG_EVENT_HEX_CHAR(evt, val)    debugEventHexChar(evt, val)
-#define DBG_ERROR(error)                debugError(error)
+#define DBG_EVENT(evt)               do { static const char _s[] PROGMEM = evt; debugEvent(_s); } while(0)
+#define DBG_EVENT_HEX(evt, val)      do { static const char _s[] PROGMEM = evt; debugEventHex(_s, val); } while(0)
+#define DBG_EVENT_HEX_CHAR(evt, val) do { static const char _s[] PROGMEM = evt; debugEventHexChar(_s, val); } while(0)
+#define DBG_ERROR(err)               do { static const char _s[] PROGMEM = err; debugError(_s); } while(0)
 #define DBG_FLUSH_IF_SAFE(status)       do { if (debugCanFlush((int)(status))) debugFlush(); } while(0)
 #define DBG_BUFFER_BUSY()               debugBufferBusy()
 #define DBG_B_TO_HEX(val)               byte_to_hex_str((unsigned)(char)(val))
