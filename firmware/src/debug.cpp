@@ -210,7 +210,7 @@ void debugEventHexChar(const char* event, uint8_t val) {
     bufferAppend(byte_to_hex_str((uint8_t)val));
 
     // Append the character itself
-    char charStr[5] = {' ', '\'', val, '\'','\0'};
+    char charStr[5] = {' ', '\'', (char)val, '\'','\0'};
     bufferAppend(charStr);
     
     bufferAppend("\r");
