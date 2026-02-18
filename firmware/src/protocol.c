@@ -20,7 +20,7 @@
 #include "transfer.h"
 #include "buffers.h"
 #include "hardware.h"
-#include "keymap.h"
+#include "translate.h"
 #include "debug.h"
 
 // For micros() — remove when porting away from Arduino
@@ -46,20 +46,56 @@ static inline void transitionTo(Protocol *ps, ProtocolState newState) {
 }
 
 // ==============================================
+// Session State Reset
+// ==============================================
+//
+// Resets all protocol state that is only valid while
+// connected to a typewriter. Called by protocolInit()
+// and transitionToOffline().
+//
+// Does NOT touch: state, stateEnteredAt, or Transfer struct.
+//
+static void protocolReset(Protocol *ps) {
+    ps->deviceType = 0;
+    ps->selectState = SEL_IDLE;
+    ps->deselectState = DESEL_IDLE;
+    ps->codePressed = false;
+    ps->autoLfEnabled = AUTO_LINE_FEED;
+    ps->keyboardID = KEYBOARD_KB1;
+}
+
+// ==============================================
+// Transition to Offline
+// ==============================================
+//
+// Centralised transition to PS_OFFLINE.
+// Tears down the transfer layer, resets all session
+// state, and transitions to PS_OFFLINE.
+//
+// Called from every error/timeout/power-loss path.
+//
+static void transitionToOffline(Protocol *ps) {
+    transferDeinit(&ps->ts);
+    protocolReset(ps);
+    transitionTo(ps, PS_OFFLINE);
+}
+
+// ==============================================
 // Public: Initialize Protocol Layer
 // ==============================================
 
 void protocolInit(Protocol *ps) {
     ps->state = PS_OFFLINE;
     ps->stateEnteredAt = 0;
-    ps->deviceType = 0;
-    ps->selectState = SEL_IDLE;
 
     // Transfer layer not initialized yet
     ps->ts.state = TS_NOT_INIT;
     ps->ts.stateEnteredAt = 0;
     ps->ts.lastWasSI = true;
     ps->ts.receivedByte = 0;
+
+    // Session state defaults
+    protocolReset(ps);
 }
 
 // ==============================================
@@ -98,8 +134,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
     //
     if (status == TS_STATUS_ERROR) {
         DBG_ERROR("TS_STATUS_ERROR");
-        transferDeinit(ts);
-        transitionTo(ps, PS_OFFLINE);
+        transitionToOffline(ps);
         return PS_STATUS_OFFLINE;
     }
 
@@ -113,8 +148,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
     //
     if (ps->state != PS_OFFLINE && now - ps->stateEnteredAt >= 100 && !isTypewriterPowered()) {
         DBG_EVENT("TW Power OFF");
-        transferDeinit(ts);
-        transitionTo(ps, PS_OFFLINE);
+        transitionToOffline(ps);
         return PS_STATUS_OFFLINE;
     }
     
@@ -193,8 +227,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
                 DBG_EVENT("STARTUP REQUEST TIMEOUT");
-                transferDeinit(ts);
-                transitionTo(ps, PS_OFFLINE);
+                transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
             
@@ -224,9 +257,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
-                transferDeinit(ts);
                 DBG_EVENT("STARTUP TRANSFER TIMEOUT");
-                transitionTo(ps, PS_OFFLINE);
+                transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
 
@@ -234,9 +266,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: 1s since Startup Request
             // Action: Return to offline state
             if (now - ps->stateEnteredAt >= 1000000) {
-                transferDeinit(ts);
                 DBG_EVENT("STARTUP RESPONSE TIMEOUT");
-                transitionTo(ps, PS_OFFLINE);
+                transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
             
@@ -256,9 +287,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Guard: Timeout from transfer layer
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
-                transferDeinit(ts);
                 DBG_EVENT("STANDBY TRANSFER TIMEOUT");
-                transitionTo(ps, PS_OFFLINE);
+                transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
             
@@ -308,8 +338,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // ----- Global: Transfer Timeout -----
             if (status == TS_STATUS_TIMEOUT) {
                 DBG_EVENT("SELECT TRANSFER TIMEOUT");
-                transferDeinit(ts);
-                transitionTo(ps, PS_OFFLINE);
+                transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
 
@@ -345,20 +374,32 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     
                 case SEL_WAIT_FD:
                     if (status == TS_STATUS_SI_DONE) {
-                        ps->selectState = SEL_WAIT_EOT;
+                        ps->selectState = SEL_WAIT_KBBYTE;
                     }
                     break;
                 
-                // ----- Wait for EOT (0x04) from Typewriter -----
-                case SEL_WAIT_EOT:
+                // ----- Wait for Keyboard-Byte from Typewriter -----
+                case SEL_WAIT_KBBYTE:
                     if (status == TS_STATUS_SO_DONE) {
-                        if (ts->receivedByte == 0x04) {
-                            DBG_EVENT_HEX("SELECT: GOT EOT", 0x04);
-                            ps->selectState = SEL_QUEUE_F4;
-                        } else {
-                            // ANTICIPATED BUT NOT OBSERVED BEHAVIOR
-                            DBG_EVENT_HEX("SELECT: EXPECTED EOT, GOT", ts->receivedByte);
+                        switch (ts->receivedByte){
+                            case KEYBOARD_KB1:
+                                ps->keyboardID = KEYBOARD_KB1;
+                                DBG_EVENT_HEX("SELECT: KBCONFIG LOCAL (KB1)", KEYBOARD_KB1);
+                                break;
+                            case KEYBOARD_KB2:
+                                ps->keyboardID = KEYBOARD_KB2;
+                                DBG_EVENT_HEX("SELECT: KBCONFIG INTERNATIONAL (KB2)", KEYBOARD_KB2);
+                                break;
+                            case KEYBOARD_KB3:
+                                ps->keyboardID = KEYBOARD_KB3;
+                                DBG_EVENT_HEX("SELECT: KBCONFIG SYMBOL (KB3)", KEYBOARD_KB3);
+                                break;
+                            default:
+                                ps->keyboardID = KEYBOARD_KB1;
+                                DBG_EVENT_HEX("SELECT: KBCONFIG ERROR, DEFAULTING KB1", ts->receivedByte);
+                                break;
                         }
+                        ps->selectState = SEL_QUEUE_F4;
                     }
                     break;
                 
@@ -447,7 +488,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
                 DBG_EVENT("TRANSFER TIMEOUT");
-                transitionTo(ps, PS_OFFLINE);
+                transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
             
@@ -469,12 +510,10 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 }
 
                 
-                // Action: Translate and queue byte to transfer layer
-                uint8_t mapped_byte = keymapToTypewriter(si_byte);
-
+                // Action: Queue byte to transfer layer
+                // TODO: Replace with forward translation (translateChar / translateControlCode)
                 if (transferQueueSI(ts, si_byte)) {
-                    DBG_EVENT_HEX("SI MAPPED", mapped_byte);
-                    DBG_EVENT_HEX("SI QUEUED", mapped_byte);
+                    DBG_EVENT_HEX("SI QUEUED", si_byte);
                     siBufferPop(&si_byte);
                 }else{
                     DBG_ERROR("QUEUED BYTE COLLISION");
@@ -483,14 +522,40 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 return PS_STATUS_ONLINE;
             }
             
-            // ----- ACTION: Store received byte -----
+            // ----- ACTION: Handle received byte -----
             // Guard: SO transfer complete
-            // Action: Translate and push byte to soBuffer
+            // Action: Track Code key state, translate, push to soBuffer
             if (status == TS_STATUS_SO_DONE) {
-                uint8_t mapped_byte = keymapToPC(ts->receivedByte);
-                soBufferPush(mapped_byte);
-                DBG_EVENT_HEX("SO RECEIVED", ts->receivedByte);
-                DBG_EVENT_HEX("SO MAPPED", mapped_byte);
+                uint8_t b = ts->receivedByte;
+                DBG_EVENT_HEX("SO RECEIVED", b);
+
+                // Code Modifier Tracking
+                if (b == 0x88) { ps->codePressed = true;  return PS_STATUS_ONLINE; }
+                if (b == 0x89) { ps->codePressed = false; return PS_STATUS_ONLINE; }
+
+                // Non-Translating Keys (Correction, Relocate, etc.)
+                if (isNonTranslatingKey(b)) return PS_STATUS_ONLINE;
+
+                // Code+M: CR with optional auto-LF
+                if (ps->codePressed && b == 0x6D) {
+                    soBufferPush(0x0D);
+                    if (ps->autoLfEnabled) soBufferPush(0x0A);
+                    return PS_STATUS_ONLINE;
+                }
+
+                // Translation Dispatch
+                TranslateResult r;
+                if (ps->codePressed) {
+                    r = translateCodeBusToSerial(b, ps->keyboardID);
+                } else {
+                    r = translateNormalBusToSerial(b, ps->keyboardID);
+                }
+
+                // Push Results to Serial Out Buffer
+                for (uint8_t i = 0; i < r.len; i++) {
+                    soBufferPush(r.bytes[i]);
+                    DBG_EVENT_HEX_CHAR("SO MAPPED", r.bytes[i]);
+                }
                 return PS_STATUS_ONLINE;
             }
             
@@ -513,8 +578,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // ----- Global: Transfer Timeout -----
             if (status == TS_STATUS_TIMEOUT) {
                 DBG_EVENT("DESELECT TRANSFER TIMEOUT");
-                transferDeinit(ts);
-                transitionTo(ps, PS_OFFLINE);
+                transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
 
@@ -566,7 +630,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
         // DEFAULT — Should never happen
         // ------------------------------------------
         default:
-            transitionTo(ps, PS_OFFLINE);
+            transitionToOffline(ps);
             return PS_STATUS_OFFLINE;
     }
 }

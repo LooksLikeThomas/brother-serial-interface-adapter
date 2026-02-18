@@ -154,14 +154,14 @@ void debugTransition(int from, int to, int status) {
 
     bufferAppend("(");
     bufferAppend(getTransferStatusName((TransferStatus)status));
-    bufferAppend(")\n\r");
+    bufferAppend(")\r");
 }
 
 void debugEvent(const char* event) {
     bufferAppendTimestamp();
     bufferAppend("[EVENT] ");
     bufferAppend(event);
-    bufferAppend("\n\r");
+    bufferAppend("\r");
 }
 
 void debugEventHex(const char* event, uint8_t val) {
@@ -184,14 +184,43 @@ void debugEventHex(const char* event, uint8_t val) {
     }
 
     bufferAppend(byte_to_hex_str(val));
-    bufferAppend("\n\r");
+    bufferAppend("\r");
+}
+
+void debugEventHexChar(const char* event, uint8_t val) {
+    bufferAppendTimestamp();
+    bufferAppend("[EVENT] ");
+    bufferAppend(event);
+
+    // Calculate length of the label to determine padding
+    uint16_t len = strlen(event);
+
+    // Dynamic padding logic 
+    if (len < 8) {
+        bufferAppend("\t\t\t");
+    } else if (len < 16) {
+        bufferAppend("\t\t");
+    } else if (len < 24) {
+        bufferAppend("\t");
+    } else {
+        bufferAppend(" ");
+    }
+
+    // Append the Hex value
+    bufferAppend(byte_to_hex_str((uint8_t)val));
+
+    // Append the character itself
+    char charStr[5] = {' ', '\'', val, '\'','\0'};
+    bufferAppend(charStr);
+    
+    bufferAppend("\r");
 }
 
 void debugError(const char* error) {
     bufferAppendTimestamp();
     bufferAppend("[ERROR] !!");
     bufferAppend(error);
-    bufferAppend("\n\r");
+    bufferAppend("\r");
 }
 
 bool debugCanFlush(int status) {

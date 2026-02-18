@@ -124,9 +124,9 @@ void loop() {
     if (soBufferPop(&so_byte)) {
 
         if (DEBUG_ENABLED){
-            DBG_EVENT_HEX("SERIAL SEND", so_byte);
+            DBG_EVENT_HEX_CHAR("SERIAL SEND", so_byte);
         }else{
-            Serial.print(so_byte);
+            Serial.write(so_byte);
         }
     }
 }

@@ -23,6 +23,17 @@ extern "C" {
 #endif
 
 // ==============================================
+// Keyboard Identifiers
+// ==============================================
+//
+// Values match the keyboard ID byte returned by the
+// typewriter in the SELECT response (byte 3).
+//
+#define KEYBOARD_KB1  0x04  // Local layout
+#define KEYBOARD_KB2  0x24  // International layout
+#define KEYBOARD_KB3  0x44  // Symbol layout
+
+// ==============================================
 // Protocol State Machine
 // ==============================================
 
@@ -44,7 +55,7 @@ typedef enum {
     SEL_WAIT_MODE,      // Wait for SI_DONE
     SEL_QUEUE_FD,       // Queue 0xFD
     SEL_WAIT_FD,        // Wait for SI_DONE
-    SEL_WAIT_EOT,       // Wait for SO (expect 0x04)
+    SEL_WAIT_KBBYTE,    // Wait for SO Keyboard config (0x04/0x24/0x44)
     SEL_QUEUE_F4,       // Queue 0xF4
     SEL_WAIT_F4,        // Wait for SI_DONE
     SEL_QUEUE_PITCH1,   // Queue 0xB1
@@ -90,6 +101,12 @@ typedef struct {
     DeselectState deselectState;// Substate for DESELECT sequence
     Transfer ts;                // Transfer layer state (owned by protocol)
     TransferStatus lastTsStatus;// Last status from pollTransfer() (for debugging)
+
+    // Reverse path state (typewriter → serial)
+    bool codePressed;           // True between bus 0x88 (Code down) and 0x89 (Code up)
+    bool autoLfEnabled;         // Set via config or ESC Sequence. Adds LF after CR
+    uint8_t keyboardID;         // From SELECT response byte 3 (0x04/0x24/0x44)
+    
 } Protocol;
 
 // ==============================================
