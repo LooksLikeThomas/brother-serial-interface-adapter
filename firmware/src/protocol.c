@@ -69,6 +69,7 @@ static void protocolReset(Protocol *ps) {
     ps->column = 1;
     ps->leftMargin = 1;
     ps->rightMargin = rightMarginForPitch(ps->pitchByte);
+    tabInit(&ps->tabs, TAB_EVERY_N, ps->rightMargin);
 }
 
 // ==============================================
@@ -612,6 +613,28 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 if (si_byte == 0x08 && ps->column <= ps->leftMargin) {
                     siBufferPop(&si_byte);
                     DBG_EVENT("BS SWALLOWED (AT MARGIN)");
+                    return PS_STATUS_ONLINE;
+                }
+
+                // ----- ACTION: Horizontal Tab -----
+                // Guard: HT byte (0x09)
+                // Scans forward for the next tab stop. No-op if none found within right margin.
+                // Emits [0x8B, 0x00 × N]: 0x8B disables underline defensively,
+                // then 0x00 × N advances N positions at the current pitch.
+                //
+                if (si_byte == 0x09) {
+                    siBufferPop(&si_byte);
+                    uint8_t target = tabNextStop(&ps->tabs, ps->column, ps->rightMargin);
+                    if (target == 0) {
+                        DBG_EVENT("HT NO STOP");
+                        return PS_STATUS_ONLINE;
+                    }
+                    uint8_t delta = target - ps->column;
+                    bsbClear(&ps->bsb);
+                    bsbAddByte(&ps->bsb, 0x8B);
+                    bsbAddRepeat(&ps->bsb, 0x00, delta);
+                    ps->column = target;
+                    DBG_EVENT_HEX("HT TO COL", target);
                     return PS_STATUS_ONLINE;
                 }
 

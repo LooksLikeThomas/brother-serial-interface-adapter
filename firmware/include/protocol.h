@@ -19,6 +19,7 @@
 #include "transfer.h"
 #include "translate.h"
 #include "busseq.h"
+#include "tabstops.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -120,6 +121,7 @@ typedef struct {
     uint8_t column;             // Current column (1-based, starts at leftMargin)
     uint8_t leftMargin;         // Left margin column (default 1)
     uint8_t rightMargin;        // Right margin column (pitch-dependent)
+    TabStops tabs;              // Horizontal tab stop positions (bitmask)
 } Protocol;
 
 // ==============================================

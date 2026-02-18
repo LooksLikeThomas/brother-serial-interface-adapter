@@ -105,6 +105,11 @@ static const bool DC_CONTROL = true; // TODO: NOT IMPLEMENTED
 // true  = Auto line feed on (Double spacing)
 static const bool AUTO_LINE_FEED = false;
 
+// Pre-fill Horizontal Tab Stops
+// Sets a tab stop every N columns on startup (column 1 + N, 1 + 2N, ...).
+// 0 = no pre-fill (manual setup only via future ESC+1/ESC+8 sequences).
+#define TAB_EVERY_N  8
+
 // Printing Pitch (Characters Per Inch)
 // Controls horizontal character density.
 // #define PITCH_BYTE 0xB2  // 12cpi
