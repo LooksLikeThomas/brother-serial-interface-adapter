@@ -119,6 +119,13 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard);
 //
 bool isNonTranslatingKey(uint8_t busByte);
 
+// Return the horizontal travel delta for a serial byte:
+//   +1  printable (0x20-0x7E) — carriage moves right
+//   -1  BS (0x08)             — carriage moves left
+//    0  all other bytes       — no horizontal movement
+//
+int8_t serialHtDelta(uint8_t serialByte);
+
 #ifdef __cplusplus
 }
 #endif

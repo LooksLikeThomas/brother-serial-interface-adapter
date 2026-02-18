@@ -91,6 +91,22 @@ typedef enum {
 } ProtocolStatus;
 
 // ==============================================
+// TWAction — Pending Bus Action
+// ==============================================
+//
+// Encodes bytes to send plus a horizontal-travel iterator.
+// htDelta > 0: column++ per iteration (printable chars)
+// htDelta < 0: column-- per iteration (backspace)
+// htDelta = 0: no column change (CR, BEL, pitch bytes)
+//
+typedef struct {
+    uint8_t bytes[4];
+    uint8_t len;        // 0 = no pending action
+    uint8_t idx;        // current drain position
+    int8_t  htDelta;    // >0: column++ per iter, <0: column-- per iter, 0: none
+} TWAction;
+
+// ==============================================
 // Protocol Struct
 // ==============================================
 
@@ -111,28 +127,43 @@ typedef struct {
     // Reverse path state (typewriter → serial)
     bool codePressed;           // True between bus 0x88 (Code down) and 0x89 (Code up)
     bool swallowNextLf;         // For autoLF
-    
-    // Forward path state and buffer (typewriter → serial)
-    uint8_t fwdBuf[4];
-    uint8_t fwdLen;
-    uint8_t fwdIdx;
+
+    // Forward path action (serial → bus)
+    TWAction action;            // Current pending bus action
+
+    // Carriage position tracking (1-based)
+    uint8_t column;             // Current column (1-based, starts at leftMargin)
+    uint8_t leftMargin;         // Left margin column (default 1)
+    uint8_t rightMargin;        // Right margin column (pitch-dependent)
 } Protocol;
 
-// Protocol forward Buffer Helper functions:
-static inline bool fwdBufHasData(const Protocol *ps) {
-    return ps->fwdIdx < ps->fwdLen;
+// TWAction helper functions:
+static inline bool actionHasData(const TWAction *a) {
+    return a->idx < a->len;
 }
 
-static inline void fwdBufLoad(Protocol *ps, TranslateResult r) {
-    for (uint8_t i = 0; i < r.len; i++) {
-        ps->fwdBuf[i] = r.bytes[i];
-    }
-    ps->fwdLen = r.len;
-    ps->fwdIdx = 0;
+static inline void actionLoad(TWAction *a, TranslateResult r, int8_t htDelta) {
+    for (uint8_t i = 0; i < r.len; i++) a->bytes[i] = r.bytes[i];
+    a->len = r.len;
+    a->idx = 0;
+    a->htDelta = htDelta;
 }
 
-static inline uint8_t fwdBufNext(Protocol *ps) {
-    return ps->fwdBuf[ps->fwdIdx++];
+// Peek at next byte to send (does NOT advance state)
+static inline uint8_t actionNextByte(const TWAction *a) {
+    return a->bytes[a->idx];
+}
+
+// Commit after successful send: advance idx, handle iteration boundary.
+// Returns column delta: +1, -1, or 0.
+static inline int8_t actionStep(TWAction *a) {
+    a->idx++;
+    if (a->idx < a->len) return 0;
+    int8_t delta = 0;
+    if (a->htDelta > 0)      { delta = 1;  a->htDelta--; }
+    else if (a->htDelta < 0) { delta = -1; a->htDelta++; }
+    if (a->htDelta != 0) a->idx = 0;  // replay for next iteration
+    return delta;
 }
 
 // ==============================================

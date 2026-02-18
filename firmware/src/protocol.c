@@ -17,6 +17,7 @@
 // On timeout at any stage, returns to PS_OFFLINE.
 //
 #include "protocol.h"
+#include "config.h"
 #include "transfer.h"
 #include "buffers.h"
 #include "hardware.h"
@@ -62,10 +63,14 @@ static void protocolReset(Protocol *ps) {
     ps->codePressed = false;
     ps->autoLfEnabled = AUTO_LINE_FEED;
     ps->keyboardID = KEYBOARD_KB1;
-    ps->fwdLen = 0;
-    ps->fwdIdx = 0;
+    ps->action.len = 0;
+    ps->action.idx = 0;
+    ps->action.htDelta = 0;
     ps->swallowNextLf = false;
     ps->pitchByte = PITCH_BYTE;
+    ps->column = 1;
+    ps->leftMargin = 1;
+    ps->rightMargin = rightMarginForPitch(ps->pitchByte);
 }
 
 // ==============================================
@@ -507,10 +512,10 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // TS_STATUS_SO_DONE (not IDLE), so this block is skipped and the
             // SO_DONE handler below processes the received byte.
             //
-            if (status == TS_STATUS_IDLE && fwdBufHasData(ps)) {
-                uint8_t b = ps->fwdBuf[ps->fwdIdx];
+            if (status == TS_STATUS_IDLE && actionHasData(&ps->action)) {
+                uint8_t b = actionNextByte(&ps->action);
                 if (transferQueueSI(ts, b)) {
-                    ps->fwdIdx++;
+                    ps->column += actionStep(&ps->action);
                     DBG_EVENT_HEX("SI QUEUED", b);
                 }
                 return PS_STATUS_ONLINE;
@@ -525,7 +530,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             // buffer; the first byte is sent immediately, the rest will be
             // drained by the block above on subsequent loop iterations.
             //
-            if (status == TS_STATUS_IDLE && !fwdBufHasData(ps) && !siBufferEmpty()) {
+            if (status == TS_STATUS_IDLE && !actionHasData(&ps->action) && !siBufferEmpty()) {
                 uint8_t si_byte = siBufferPeek();
 
                 // DC3 → begin DESELECT (consumed but not translated)
@@ -562,19 +567,40 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     if (ps->autoLfEnabled) {
                         // Auto-LF: combined CR+LF, swallow redundant following LF
                         DBG_EVENT("CR+AUTO-LF");
-                        fwdBufLoad(ps, result2(0x02, ps->pitchByte));
+                        actionLoad(&ps->action, result2(0x02, ps->pitchByte), 0);
                         ps->swallowNextLf = true;
                     } else if (!siBufferEmpty() && siBufferPeek() == 0x0A) {
                         // CR+LF in buffer: combine into single bus command
                         uint8_t lf;
                         siBufferPop(&lf);
                         DBG_EVENT("CR+LF");
-                        fwdBufLoad(ps, result2(0x02, ps->pitchByte));
+                        actionLoad(&ps->action, result2(0x02, ps->pitchByte), 0);
                     } else {
                         // Standalone CR: return to margin, no line feed
                         DBG_EVENT("CR");
-                        fwdBufLoad(ps, result2(0x9E, ps->pitchByte));
+                        actionLoad(&ps->action, result2(0x9E, ps->pitchByte), 0);
                     }
+                    ps->column = ps->leftMargin;
+                    return PS_STATUS_ONLINE;
+                }
+
+                // ----- ACTION: Auto line wrap at right margin -----
+                // Guard: printable char AND column past right margin
+                // Character stays in siBuffer; CR+LF drains first, then it's retranslated.
+                //
+                if (si_byte >= 0x20 && si_byte <= 0x7E && ps->column > ps->rightMargin) {
+                    actionLoad(&ps->action, result2(0x02, ps->pitchByte), 0);
+                    ps->column = ps->leftMargin;
+                    DBG_EVENT("AUTO WRAP");
+                    return PS_STATUS_ONLINE;
+                }
+
+                // ----- ACTION: BS at left margin — swallow -----
+                // Guard: BS byte AND column at or left of left margin
+                //
+                if (si_byte == 0x08 && ps->column <= ps->leftMargin) {
+                    siBufferPop(&si_byte);
+                    DBG_EVENT("BS SWALLOWED (AT MARGIN)");
                     return PS_STATUS_ONLINE;
                 }
 
@@ -588,8 +614,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     return PS_STATUS_ONLINE;
                 }
 
-                // Load into forward buffer — will be drained starting next cycle
-                fwdBufLoad(ps, r);
+                // Load into action — will be drained starting next cycle
+                actionLoad(&ps->action, r, serialHtDelta(si_byte));
                 DBG_EVENT_HEX_CHAR("SI TRANSLATED", si_byte);
                 return PS_STATUS_ONLINE;
             }

@@ -111,6 +111,14 @@ static const bool AUTO_LINE_FEED = false;
 // #define PITCH_BYTE 0xB3  // 15cpi
 #define PITCH_BYTE 0xB1     // 10cpi (default)
 
+static inline uint8_t rightMarginForPitch(uint8_t pitch) {
+    switch (pitch) {
+        case 0xB2: return 96;   // 12 cpi × 8"
+        case 0xB3: return 120;  // 15 cpi × 8"
+        default:   return 80;   // 10 cpi × 8"
+    }
+}
+
 // Line Pitch (Line Spacing)
 // Controls vertical line spacing density.
 // Options: 1.0, 1.5, 2.0, 3.0

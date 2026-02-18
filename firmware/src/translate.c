@@ -14,6 +14,12 @@
 // Non-Translating Keys
 // ==============================================
 
+int8_t serialHtDelta(uint8_t serialByte) {
+    if (serialByte >= 0x20 && serialByte <= 0x7E) return  1;
+    if (serialByte == 0x08)                        return -1;
+    return 0;
+}
+
 bool isNonTranslatingKey(uint8_t busByte) {
     switch (busByte) {
         case 0x08:  // Half-space / micro-step
@@ -107,7 +113,8 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
             return result1(0x25);
         case 0x5F: // _
             return kbSelect(keyboard, 0x3F, 0x3F, 0x2E);
-
+        case 0x20:  // SP
+            return result1(0x00);
         case 0x21: // !
             if (keyboard == KEYBOARD_KB3) return result3(0x88, 0x56, 0x89);
             return result1(0x21);
