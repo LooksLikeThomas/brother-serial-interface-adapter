@@ -119,6 +119,7 @@ typedef struct {
 
     // Carriage position tracking (1-based)
     uint8_t column;             // Current column (1-based, starts at leftMargin)
+    uint8_t line;               // Current line on page (1-based)
     uint8_t leftMargin;         // Left margin column (default 1)
     uint8_t rightMargin;        // Right margin column (pitch-dependent)
     TabStops tabs;              // Horizontal tab stop positions (bitmask)

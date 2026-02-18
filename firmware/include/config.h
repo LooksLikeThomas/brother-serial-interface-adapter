@@ -75,9 +75,15 @@ extern "C" {
 static const bool ASCII_WHEEL = true; // TODO: NOT IMPLEMENTED
 
 // Paper Length Configuration
-// false = 11 inch paper (Standard US Letter)
-// true  = 12 inch paper (Roughly DIN A4)
-static const bool PAPER_LENGTH = false; // TODO: NOT IMPLEMENTED
+// Paper length in inches (11 = US Letter, 12 = A4/US Legal)
+#define PAPER_LENGTH  11
+
+// Vertical Line Spacing (VMI)
+// 1 = single spacing (6 lpi), 2 = double spacing (3 lpi)
+#define VMI  1
+
+// Usable lines per page: paper × 6 lpi ÷ VMI, minus 2-line top and bottom margins
+#define LINES_PER_PAGE  (PAPER_LENGTH * 6 / VMI - 4)
 
 // ==============================================
 // Printer Behavior Settings

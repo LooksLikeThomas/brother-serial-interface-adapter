@@ -67,6 +67,7 @@ static void protocolReset(Protocol *ps) {
     ps->swallowNextLf = false;
     ps->pitchByte = PITCH_BYTE;
     ps->column = 1;
+    ps->line = 1;
     ps->leftMargin = 1;
     ps->rightMargin = rightMarginForPitch(ps->pitchByte);
     tabInit(&ps->tabs, TAB_EVERY_N, ps->rightMargin);
@@ -555,6 +556,32 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 }
 
 
+                // ----- ACTION: Line Feed -----
+                // Guard: LF byte (0x0A)
+                //
+                if (si_byte == 0x0A) {
+                    siBufferPop(&si_byte);
+                    bsbClear(&ps->bsb);
+                    bsbAddByte(&ps->bsb, 0x9F);
+                    ps->line++;
+                    DBG_EVENT("LF");
+                    return PS_STATUS_ONLINE;
+                }
+
+                // ----- ACTION: Form Feed -----
+                // Guard: FF byte (0x0C)
+                // Emits 0x9F × remaining to advance to next page top, then resets line counter.
+                //
+                if (si_byte == 0x0C) {
+                    siBufferPop(&si_byte);
+                    uint8_t remaining = (ps->line < LINES_PER_PAGE) ? LINES_PER_PAGE - ps->line : 0;
+                    bsbClear(&ps->bsb);
+                    bsbAddRepeat(&ps->bsb, 0x9F, remaining);
+                    ps->line = 1;
+                    DBG_EVENT_HEX("FF LINES", remaining);
+                    return PS_STATUS_ONLINE;
+                }
+
                 // ----- ACTION: Carriage Return -----
                 // Guard: CR byte (0x0D)
                 // Appends pitch byte <P> to reassert HMI mode at line boundaries.
@@ -568,11 +595,13 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                         DBG_EVENT("CR+AUTO-LF");
                         bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
                         ps->swallowNextLf = true;
+                        ps->line++;
                     } else if (!siBufferEmpty() && siBufferPeek() == 0x0A) {
                         uint8_t lf;
                         siBufferPop(&lf);
                         DBG_EVENT("CR+LF");
                         bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
+                        ps->line++;
                     } else {
                         DBG_EVENT("CR");
                         bsbAddByte2(&ps->bsb, 0x9E, ps->pitchByte);
@@ -603,6 +632,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                     }
 
                     ps->column = ps->leftMargin;
+                    ps->line++;
                     DBG_EVENT("AUTO WRAP");
                     return PS_STATUS_ONLINE;
                 }
