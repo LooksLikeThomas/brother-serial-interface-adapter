@@ -26,6 +26,8 @@ bool siBufferFull();
 bool siBufferPush(uint8_t byte);
 bool siBufferPop(uint8_t *byte);
 uint8_t siBufferPeek();
+uint8_t siBufferPeekN(uint8_t *buf, uint8_t n);
+void siBufferDiscard(uint8_t n);
 
 // ----- SO Buffer (incoming from typewriter) -----
 

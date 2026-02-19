@@ -112,7 +112,6 @@ typedef struct {
 
     // Reverse path state (typewriter → serial)
     bool codePressed;           // True between bus 0x88 (Code down) and 0x89 (Code up)
-    bool swallowNextLf;         // For autoLF
 
     // Forward path sequence buffer (serial → bus)
     BusSequenceBuffer bsb;      // Pending bus bytes to emit

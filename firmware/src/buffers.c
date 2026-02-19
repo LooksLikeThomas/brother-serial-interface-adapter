@@ -55,6 +55,25 @@ uint8_t siBufferPeek() {
     return siBuffer[siTail];
 }
 
+// SI Buffer Multi-Byte Helpers
+
+uint8_t siBufferPeekN(uint8_t *buf, uint8_t n) {
+    uint8_t count = siBufferCount();
+    if (n > count) n = count;
+    uint8_t pos = siTail;
+    for (uint8_t i = 0; i < n; i++) {
+        buf[i] = siBuffer[pos];
+        pos = (pos + 1) % SI_BUFFER_SIZE;
+    }
+    return n;
+}
+
+void siBufferDiscard(uint8_t n) {
+    uint8_t count = siBufferCount();
+    if (n > count) n = count;
+    siTail = (siTail + n) % SI_BUFFER_SIZE;
+}
+
 // ==============================================
 // SO Buffer Functions
 // ==============================================

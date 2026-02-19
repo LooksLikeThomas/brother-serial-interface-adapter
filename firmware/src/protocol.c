@@ -22,6 +22,7 @@
 #include "buffers.h"
 #include "hardware.h"
 #include "translate.h"
+#include "online.h"
 #include "debug.h"
 
 // For micros() — remove when porting away from Arduino
@@ -64,7 +65,6 @@ static void protocolReset(Protocol *ps) {
     ps->autoLfEnabled = AUTO_LINE_FEED;
     ps->keyboardID = KEYBOARD_KB1;
     bsbClear(&ps->bsb);
-    ps->swallowNextLf = false;
     ps->pitchByte = PITCH_BYTE;
     ps->column = 1;
     ps->line = 1;
@@ -488,30 +488,15 @@ ProtocolStatus pollProtocol(Protocol *ps) {
         //   - typewriter → transfer layer → soBuffer
         //
         case PS_ONLINE:
-            // TODO: TRANSITION: DESELECT trigger received
-            // Guard: DC3 from PC or typewriter DESELECT request
-            // Action: Begin DESELECT sequence
-            
+
             // ----- TRANSITION: Typewriter Timeout -----
-            // Guard: Timeout from transfer layer
-            // Action: Return to offline state
             if (status == TS_STATUS_TIMEOUT) {
                 DBG_EVENT("TRANSFER TIMEOUT");
                 transitionToOffline(ps);
                 return PS_STATUS_OFFLINE;
             }
-            
-            // ----- ACTION: Drain forward buffer -----
-            // Guard: Transfer layer idle AND forward buffer has pending bytes
-            // 
-            // Multi-byte translations (e.g. Code key simulation [0x88, pos, 0x89])
-            // are loaded into fwdBuf and sent one byte per transfer cycle.
-            // This block drains those bytes before translating new serial input.
-            //
-            // Safe to return early: if a typewriter byte arrives, status will be
-            // TS_STATUS_SO_DONE (not IDLE), so this block is skipped and the
-            // SO_DONE handler below processes the received byte.
-            //
+
+            // ----- ACTION: Drain Bus Sequence Buffer -----
             if (status == TS_STATUS_IDLE && bsbHasData(&ps->bsb)) {
                 uint8_t b = bsbNext(&ps->bsb);
                 transferQueueSI(ts, b);
@@ -519,212 +504,21 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 return PS_STATUS_ONLINE;
             }
 
-            // ----- ACTION: Translate next serial byte -----
-            // Guard: Transfer layer idle AND forward buffer fully drained AND siBuffer has data
-            //
-            // Peeks at the next serial byte to check for protocol control (DC3),
-            // then translates printable/control bytes into bus byte(s) via
-            // translateSerialToBus(). The result is loaded into the forward
-            // buffer; the first byte is sent immediately, the rest will be
-            // drained by the block above on subsequent loop iterations.
-            //
+            // ----- ACTION: Process next serial byte(s) -----
             if (status == TS_STATUS_IDLE && !bsbHasData(&ps->bsb) && !siBufferEmpty()) {
-                uint8_t si_byte = siBufferPeek();
-
-                // DC3 → begin DESELECT (consumed but not translated)
-                if (si_byte == 0x13) {
-                    siBufferPop(&si_byte);
-                    DBG_EVENT("DC3 RECEIVED - START DESELECT");
+                ProtocolStatus result = onlineHandleSI(ps);
+                if (result == PS_STATUS_DESELECTING) {
                     ps->deselectState = DESEL_QUEUE;
                     transitionTo(ps, PS_DESELECT);
-                    return PS_STATUS_DESELECTING;
                 }
-
-                // ----- ACTION: Swallow redundant LF after auto-LF CR -----
-                // Guard: LF byte AND swallowNextLf flag set
-                // 
-                // When auto-LF is enabled, CR already emits the combined
-                // CR+LF command (0x02). A subsequent LF is swallowed.
-                //
-                if (si_byte == 0x0A && ps->swallowNextLf) {
-                    siBufferPop(&si_byte);
-                    ps->swallowNextLf = false;
-                    DBG_EVENT("LF SWALLOWED (AUTO-LF)");
-                    return PS_STATUS_ONLINE;
-                }else{
-                    ps->swallowNextLf = false;
-                }
-
-
-                // ----- ACTION: Line Feed -----
-                // Guard: LF byte (0x0A)
-                //
-                if (si_byte == 0x0A) {
-                    siBufferPop(&si_byte);
-                    bsbClear(&ps->bsb);
-                    bsbAddByte(&ps->bsb, 0x9F);
-                    ps->line++;
-                    DBG_EVENT("LF");
-                    return PS_STATUS_ONLINE;
-                }
-
-                // ----- ACTION: Form Feed -----
-                // Guard: FF byte (0x0C)
-                // Emits 0x9F × remaining to advance to next page top, then resets line counter.
-                //
-                if (si_byte == 0x0C) {
-                    siBufferPop(&si_byte);
-                    uint8_t remaining = (ps->line < LINES_PER_PAGE) ? LINES_PER_PAGE - ps->line : 0;
-                    bsbClear(&ps->bsb);
-                    bsbAddRepeat(&ps->bsb, 0x9F, remaining);
-                    ps->line = 1;
-                    DBG_EVENT_HEX("FF LINES", remaining);
-                    return PS_STATUS_ONLINE;
-                }
-
-                // ----- ACTION: Carriage Return -----
-                // Guard: CR byte (0x0D)
-                // Appends pitch byte <P> to reassert HMI mode at line boundaries.
-                // Followed by margin repositioning (0x8B + 0x00 × (leftMargin-1)) if needed.
-                //
-                if (si_byte == 0x0D) {
-                    siBufferPop(&si_byte);
-                    bsbClear(&ps->bsb);
-
-                    if (ps->autoLfEnabled) {
-                        DBG_EVENT("CR+AUTO-LF");
-                        bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
-                        ps->swallowNextLf = true;
-                        ps->line++;
-                    } else if (!siBufferEmpty() && siBufferPeek() == 0x0A) {
-                        uint8_t lf;
-                        siBufferPop(&lf);
-                        DBG_EVENT("CR+LF");
-                        bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
-                        ps->line++;
-                    } else {
-                        DBG_EVENT("CR");
-                        bsbAddByte2(&ps->bsb, 0x9E, ps->pitchByte);
-                    }
-
-                    if (ps->leftMargin > 1) {
-                        bsbAddByte(&ps->bsb, 0x8B);
-                        bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
-                    }
-
-                    ps->column = ps->leftMargin;
-                    return PS_STATUS_ONLINE;
-                }
-
-                // ----- ACTION: Auto line wrap at right margin -----
-                // Guard: printable char AND column past right margin
-                // Character stays in siBuffer; CR+LF drains first, then it's retranslated.
-                //
-                if (si_byte >= 0x20 && si_byte <= 0x7E && ps->column > ps->rightMargin) {
-                    bsbClear(&ps->bsb);
-                    bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
-
-                    // Reposition to left margin: 0x8B disables underline defensively,
-                    // then 0x00 × N steps carriage to leftMargin column.
-                    if (ps->leftMargin > 1) {
-                        bsbAddByte(&ps->bsb, 0x8B);
-                        bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
-                    }
-
-                    ps->column = ps->leftMargin;
-                    ps->line++;
-                    DBG_EVENT("AUTO WRAP");
-                    return PS_STATUS_ONLINE;
-                }
-
-                // ----- ACTION: BS at left margin — swallow -----
-                // Guard: BS byte AND column at or left of left margin
-                //
-                if (si_byte == 0x08 && ps->column <= ps->leftMargin) {
-                    siBufferPop(&si_byte);
-                    DBG_EVENT("BS SWALLOWED (AT MARGIN)");
-                    return PS_STATUS_ONLINE;
-                }
-
-                // ----- ACTION: Horizontal Tab -----
-                // Guard: HT byte (0x09)
-                // Scans forward for the next tab stop. No-op if none found within right margin.
-                // Emits [0x8B, 0x00 × N]: 0x8B disables underline defensively,
-                // then 0x00 × N advances N positions at the current pitch.
-                //
-                if (si_byte == 0x09) {
-                    siBufferPop(&si_byte);
-                    uint8_t target = tabNextStop(&ps->tabs, ps->column, ps->rightMargin);
-                    if (target == 0) {
-                        DBG_EVENT("HT NO STOP");
-                        return PS_STATUS_ONLINE;
-                    }
-                    uint8_t delta = target - ps->column;
-                    bsbClear(&ps->bsb);
-                    bsbAddByte(&ps->bsb, 0x8B);
-                    bsbAddRepeat(&ps->bsb, 0x00, delta);
-                    ps->column = target;
-                    DBG_EVENT_HEX("HT TO COL", target);
-                    return PS_STATUS_ONLINE;
-                }
-
-                // Consume and translate
-                siBufferPop(&si_byte);
-                TranslateResult r = translateSerialToBus(si_byte, ps->keyboardID);
-
-                // Unknown or swallowed byte (e.g. unsupported control codes)
-                if (r.len == 0) {
-                    DBG_EVENT_HEX("SI SWALLOWED", si_byte);
-                    return PS_STATUS_ONLINE;
-                }
-
-                // Load into BSB — will be drained starting next cycle
-                // Column is updated now: one serial byte always equals one column movement.
-                bsbClear(&ps->bsb);
-                bsbAddResult(&ps->bsb, r);
-                ps->column += serialHtDelta(si_byte);
-                DBG_EVENT_HEX_CHAR("SI TRANSLATED", si_byte);
-                return PS_STATUS_ONLINE;
+                return result;
             }
-            
-            // ----- ACTION: Handle received byte -----
-            // Guard: SO transfer complete
-            // Action: Track Code key state, translate, push to soBuffer
+
+            // ----- ACTION: Handle received byte from typewriter -----
             if (status == TS_STATUS_SO_DONE) {
-                uint8_t b = ts->receivedByte;
-                DBG_EVENT_HEX("SO RECEIVED", b);
-
-                // Code Modifier Tracking
-                if (b == 0x88) { ps->codePressed = true;  return PS_STATUS_ONLINE; }
-                if (b == 0x89) { ps->codePressed = false; return PS_STATUS_ONLINE; }
-
-                // Non-Translating Keys (Correction, Relocate, etc.)
-                if (isNonTranslatingKey(b)) return PS_STATUS_ONLINE;
-
-                // Code+M: CR with optional auto-LF
-                if (ps->codePressed && b == 0x6D) {
-                    soBufferPush(0x0D);
-                    if (ps->autoLfEnabled) soBufferPush(0x0A);
-                    return PS_STATUS_ONLINE;
-                }
-
-                // Translation Dispatch
-                TranslateResult r;
-                if (ps->codePressed) {
-                    r = translateCodeBusToSerial(b, ps->keyboardID);
-                } else {
-                    r = translateNormalBusToSerial(b, ps->keyboardID);
-                }
-
-                // Push Results to Serial Out Buffer
-                for (uint8_t i = 0; i < r.len; i++) {
-                    soBufferPush(r.bytes[i]);
-                    DBG_EVENT_HEX_CHAR("SO MAPPED", r.bytes[i]);
-                }
-                return PS_STATUS_ONLINE;
+                return onlineHandleSO(ps);
             }
-            
-            // No transition (idle or transfer in progress)
+
             return PS_STATUS_ONLINE;
         
         // ==============================================

@@ -25,7 +25,7 @@ extern "C" {
 //
 // false = Disable debugging (Production build; removes logging overhead)
 // true  = Enable debugging (Writes buffered debug messages to the Serial port)
-#define DEBUG_ENABLED 1
+#define DEBUG_ENABLED 0
 
 
 // ==============================================
@@ -33,7 +33,7 @@ extern "C" {
 // ==============================================
 
 // Buffer size for SI (outgoing to typewriter)
-#define SI_BUFFER_SIZE 256
+#define SI_BUFFER_SIZE 512
 
 // Buffer size for SO (incoming from typewriter)
 #define SO_BUFFER_SIZE 16
