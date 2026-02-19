@@ -1,0 +1,48 @@
+// Brother Serial Interface Protocol Test
+// Date: 2026-02-19 12:40:05
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+
+// Brother Serial Interface Protocol Test
+// Date: 2026-02-19 12:40:36
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+
+// Newline Quirks: Look-ahead buffer and swallowed CR testing
+[ 0x0A, 0x0D ] = [ 0x9F ] // LF then CR with 10s wait — Testing if CR is sitting in a timeout buffer and eventually outputs 0x9E.
+[ 0x0A, 0x0D, 0x20 ] = [ 0x9F, 0x9E, 0xB1, 0x00 ] // LF then CR then Space — Testing if an immediate printable char forces the look-ahead buffer to flush the swallowed CR.
+[ 0x0D, 0x0D, 0x0D, 0x58 ] = [ 0x9E, 0xB1, 0x9E, 0xB1, 0x9E, 0xB1, 0x58 ] // 3x CR followed by "X" — Testing if a printable char resets the swallow state, preventing the second CR from being dropped.

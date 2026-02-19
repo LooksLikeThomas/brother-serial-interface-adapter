@@ -435,6 +435,72 @@ TESTS_MODES = [
 	]),
 ]
 
+TESTS_NEWLINE_QUIRKS = [
+    Test('// Newline Quirks: Look-ahead buffer and swallowed CR testing', [
+        Step('print',          list(b'TEST NEWLINE QUIRKS'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=2),
+
+        # === BASELINE: Standalone CR from mid-line ===
+        Step('move to col 15', [0x1B, 0x09, 15], wait=2),
+        Step('print',          list(b'CR ALONE (WAIT)'), wait=2),
+        Step('CR alone',       [0x0D], wait=10.0, capture=True, comment='// Standalone CR from mid-line with 10s wait — baseline: does IF60 hold CR pending or emit immediately?'),
+        Step('print',          list(b'AFTER CR'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # === LF+CR from col 1 (original test, replicated) ===
+        Step('print',          list(b'LF CR COL1'), wait=2),
+        Step('CR',             [0x0D], wait=1),  # ensure at col 1
+        Step('LF then CR c1',  [0x0A, 0x0D], wait=10.0, capture=True, comment='// LF+CR from col 1 — is CR swallowed because already at margin?'),
+        Step('print',          list(b'AFTER'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # === LF+CR from mid-line (the key disambiguation) ===
+        Step('move to col 15', [0x1B, 0x09, 15], wait=2),
+        Step('print',          list(b'LF CR MID'), wait=2),
+        Step('LF then CR mid', [0x0A, 0x0D], wait=10.0, capture=True, comment='// LF+CR from mid-line — if CR appears: position-based suppression. If swallowed: lookahead mechanism.'),
+        Step('print',          list(b'AFTER'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # === LF ... wait ... CR (timing separation) ===
+        Step('move to col 15', [0x1B, 0x09, 15], wait=2),
+        Step('print',          list(b'LF WAIT CR'), wait=2),
+        Step('LF only',        [0x0A], wait=5.0, capture=True, comment='// LF alone — establish baseline, wait for any pending output'),
+        Step('CR after wait',  [0x0D], wait=5.0, capture=True, comment='// CR sent 5s after LF — if CR appears: lookahead has timeout. If swallowed: not time-based.'),
+        Step('print',          list(b'AFTER'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # === LF+CR+printable (flush theory) ===
+        Step('move to col 15', [0x1B, 0x09, 15], wait=2),
+        Step('print',          list(b'LF CR SPACE'), wait=2),
+        Step('LF CR Space',    [0x0A, 0x0D, 0x20], wait=2, capture=True, comment='// LF+CR+Space — does printable char flush the swallowed CR?'),
+        Step('print',          list(b'AFTER SPACE'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # === Double CR (clean pair) ===
+        Step('move to col 15', [0x1B, 0x09, 15], wait=2),
+        Step('print',          list(b'DOUBLE CR'), wait=2),
+        Step('2x CR',          [0x0D, 0x0D], wait=5.0, capture=True, comment='// 2x CR from mid-line — both emitted, or second swallowed?'),
+        Step('print',          list(b'AFTER'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # === Triple CR + printable (your existing test) ===
+        Step('move to col 15', [0x1B, 0x09, 15], wait=2),
+        Step('print',          list(b'TRIPLE CR FLUSH'), wait=2),
+        Step('3x CR + Char',   [0x0D, 0x0D, 0x0D, 0x58], wait=3, capture=True, comment='// 3x CR + "X" — does printable char prevent swallowing?'),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # === CR+LF coalescing verification ===
+        Step('move to col 15', [0x1B, 0x09, 15], wait=2),
+        Step('print',          list(b'CR LF MERGE'), wait=2),
+        Step('CR then LF',     [0x0D, 0x0A], wait=2, capture=True, comment='// CR+LF from mid-line — expect [0x02, 0xB1] (coalesced)'),
+        Step('print',          list(b'AFTER'), wait=2),
+        Step('CR+LF',          [0x0D, 0x0A], wait=1),
+
+        # --- Cleanup ---
+        Step('2x CR+LF',       [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
+    ]),
+]
+
 # =============================================================================
 # 6. HORIZONTAL MARGINS
 #    - ESC + 9: Set left margin
@@ -574,6 +640,17 @@ TESTS_SPECIAL = [
 		Step('print',	        list(b'DEFAULT'), wait=4),
 		Step('2x CR+LF',	    [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
 	]),
+	Test('// ESC + CR + P: Reset printer', [
+		Step('print',	        list(b'TEST RESET PRINTER'), wait=4),
+		Step('CR+LF',	        [0x0D, 0x0A], wait=2),
+		# Reset from home
+		Step('reset from home',	[0x1B, 0x0D, 0x50], wait=6, capture=True, comment='// Reset at col 1'),
+		Step('CR+LF',	        [0x0D, 0x0A], wait=1),
+		# Reset from mid-line
+		Step('move to col 9',	[0x1B, 0x09, 9], wait=2),
+		Step('reset from col 9',[0x1B, 0x0D, 0x50], wait=6, capture=True, comment='// Reset at col 9, does carriage return home?'),
+		Step('2x CR+LF',	    [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
+	]),
 ]
 
 # =============================================================================
@@ -586,17 +663,6 @@ TESTS_SPECIAL = [
 #    - ESC + CR + P: Reset printer
 # =============================================================================
 TESTS_PAPERFEED = [
-	Test('// ESC + CR + P: Reset printer', [
-		Step('print',	        list(b'TEST RESET PRINTER'), wait=4),
-		Step('CR+LF',	        [0x0D, 0x0A], wait=2),
-		# Reset from home
-		Step('reset from home',	[0x1B, 0x0D, 0x50], wait=6, capture=True, comment='// Reset at col 1'),
-		Step('CR+LF',	        [0x0D, 0x0A], wait=1),
-		# Reset from mid-line
-		Step('move to col 9',	[0x1B, 0x09, 9], wait=2),
-		Step('reset from col 9',[0x1B, 0x0D, 0x50], wait=6, capture=True, comment='// Reset at col 9, does carriage return home?'),
-		Step('2x CR+LF',	    [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
-	]),
 	Test('// Top / Bottom Margins: ESC + T, ESC + L, ESC + C', [
 		Step('print',	            list(b'TEST TOP/BOTTOM MARGINS'), wait=2),
 		Step('CR+LF',	            [0x0D, 0x0A], wait=2),
