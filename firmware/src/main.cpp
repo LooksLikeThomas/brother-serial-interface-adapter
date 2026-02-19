@@ -64,7 +64,7 @@ void setup() {
 //
 #if FLOWCONTROL_ENABLED
 void manageFlowControl() {
-    uint8_t bufLevel = siBufferCount();
+    uint16_t bufLevel = siBufferCount();
 
     if (!flowStopped && bufLevel >= FLOW_HIGH_WATER) {
         Serial.write(0x13); // XOFF
@@ -112,7 +112,8 @@ void loop() {
         #if FLOWCONTROL_ENABLED
             manageFlowControl();
         #endif
-        
+
+        DBG_BUFFER_STATUS(siBufferCount());
         DBG_EVENT_HEX("SERIAL BATCH READ", readCount);
     }
 

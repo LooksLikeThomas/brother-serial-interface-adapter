@@ -236,6 +236,16 @@ void debugError(const char* error) {
     bufferAppend("\r");
 }
 
+void debugBufferStatus(uint16_t currentCount) {
+    bufferAppendTimestamp();
+    bufferAppend("[BUFFER] ");
+    bufferAppend("\t\t"); 
+    bufferAppendNumber(currentCount);
+    bufferAppend(" / ");
+    bufferAppendNumber(SI_BUFFER_SIZE); // Now automatically the total capacity!
+    bufferAppend(" bytes\r");
+}
+
 bool debugCanFlush(int status) {
     return (status != TS_STATUS_SI_BUSY && status != TS_STATUS_SO_BUSY);
 }

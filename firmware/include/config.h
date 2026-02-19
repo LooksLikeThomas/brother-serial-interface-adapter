@@ -32,8 +32,13 @@ extern "C" {
 // Buffers
 // ==============================================
 
-// Buffer size for SI (outgoing to typewriter)
-#define SI_BUFFER_SIZE 512
+// Optional EEPROM Spillover Buffer (Only on Arduino Uno)
+// 0 = Disabled, 1 = Enabled
+#define CONF_ENABLE_EEPROM 1
+
+// Physical memory allocations
+#define SI_RAMBUFFER_SIZE    512
+#define SI_EEPROMBUFFER_SIZE 1024
 
 // Buffer size for SO (incoming from typewriter)
 #define SO_BUFFER_SIZE 16

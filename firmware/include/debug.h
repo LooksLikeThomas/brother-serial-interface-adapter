@@ -43,6 +43,9 @@ void debugEventHexChar(const char* event, uint8_t val);
 // Log an Error (e.g., "TRANSFER_ERROR")
 void debugError(const char* error);
 
+// Log current SI buffer fill level (e.g., "128 / 1536 bytes")
+void debugBufferStatus(uint16_t currentCount);
+
 // Flush buffer to Serial (only call when transfer layer is idle)
 void debugFlush(void);
 
@@ -66,6 +69,7 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_EVENT_HEX(evt, val)      do { static const char _s[] PROGMEM = evt; debugEventHex(_s, val); } while(0)
 #define DBG_EVENT_HEX_CHAR(evt, val) do { static const char _s[] PROGMEM = evt; debugEventHexChar(_s, val); } while(0)
 #define DBG_ERROR(err)               do { static const char _s[] PROGMEM = err; debugError(_s); } while(0)
+#define DBG_BUFFER_STATUS(count)        debugBufferStatus(count)
 #define DBG_FLUSH_IF_SAFE(status)       do { if (debugCanFlush((int)(status))) debugFlush(); } while(0)
 #define DBG_BUFFER_BUSY()               debugBufferBusy()
 #define DBG_B_TO_HEX(val)               byte_to_hex_str((unsigned)(char)(val))
@@ -79,6 +83,7 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_EVENT_HEX(msg, val)         ((void)0)
 #define DBG_EVENT_HEX_CHAR(evt, val)    ((void)0)
 #define DBG_ERROR(error)                ((void)0)
+#define DBG_BUFFER_STATUS(count)        ((void)0)
 #define DBG_FLUSH_IF_SAFE(status)       ((void)0)
 #define DBG_BUFFER_BUSY()               (false)
 #define DBG_B_TO_HEX(val)               ((void)0)
