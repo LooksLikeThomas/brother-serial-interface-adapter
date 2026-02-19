@@ -44,7 +44,17 @@ void setup() {
     delay(100);
 
     // Initialize Serial for data transfer (and debug if enabled)
-    Serial.begin(SERIAL_BAUD);
+    uint8_t serialConfig;
+    if (SERIAL_N) {
+        if      (SERIAL_PARITY == 1) serialConfig = SERIAL_8E1;
+        else if (SERIAL_PARITY == 2) serialConfig = SERIAL_8O1;
+        else                         serialConfig = SERIAL_8N1;
+    } else {
+        if      (SERIAL_PARITY == 1) serialConfig = SERIAL_7E1;
+        else if (SERIAL_PARITY == 2) serialConfig = SERIAL_7O1;
+        else                         serialConfig = SERIAL_7N1;
+    }
+    Serial.begin(SERIAL_BAUD, serialConfig);
 
     // Initialize debug system
     DBG_INIT();

@@ -155,12 +155,13 @@ static const float LINE_PITCH = 1.0; // TODO: NOT IMPLEMENTED
 // Serial Data Bits
 // false = 7-bit data
 // true  = 8-bit data
-static const bool SERIAL_N = true; // TODO: NOT IMPLEMENTED
+static const bool SERIAL_N = true;
 
 // Serial Parity
-// false = Even parity
-// true  = Odd parity
-static const bool SERIAL_PARITY = false; // TODO: NOT IMPLEMENTED
+// 0 = No parity (N)
+// 1 = Even parity (E)
+// 2 = Odd parity (O)
+static const uint8_t SERIAL_PARITY = 0;
 
 // Serial Baud Rate
 // Speed of the serial connection in bits per second.
