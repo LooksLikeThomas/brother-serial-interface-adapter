@@ -109,7 +109,15 @@ static const bool DC_CONTROL = true; // TODO: NOT IMPLEMENTED
 //
 // false = Auto line feed off (Standard single spacing)
 // true  = Auto line feed on (Double spacing)
-static const bool AUTO_LINE_FEED = false;
+static const bool AUTO_LINE_FEED = true;
+
+// Automatic Carriage Return
+// Treats standalone LF as CR+LF for Unix/Linux compatibility.
+// Does not affect explicit CR+LF pairs (handled by CR lookahead).
+//
+// false = Standalone LF moves paper only (typewriter standard)
+// true  = Standalone LF also returns carriage (Unix compatibility)
+static const bool AUTO_CARRIAGE_RETURN = true;
 
 // Pre-fill Horizontal Tab Stops
 // Sets a tab stop every N columns on startup (column 1 + N, 1 + 2N, ...).

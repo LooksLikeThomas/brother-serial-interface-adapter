@@ -397,12 +397,27 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
     // Vertical movement only — carriage stays at current column.
     // Bus byte 0x9F advances paper one line.
     //
+    // When AUTO_CARRIAGE_RETURN is enabled, standalone LF is
+    // promoted to CR+LF (bus 0x02) for Unix/Linux compatibility.
+    // Explicit CR+LF pairs never reach here — the CR lookahead
+    // coalesces them before the LF is processed.
+    //
     if (si_byte == 0x0A) {
         siBufferPop(&si_byte);
         bsbClear(&ps->bsb);
-        bsbAddByte(&ps->bsb, 0x9F);
+        if (AUTO_CARRIAGE_RETURN) {
+            bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
+            if (ps->leftMargin > 1) {
+                bsbAddByte(&ps->bsb, 0x8B);
+                bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
+            }
+            ps->column = ps->leftMargin;
+            DBG_EVENT("LF+AUTO-CR");
+        } else {
+            bsbAddByte(&ps->bsb, 0x9F);
+            DBG_EVENT("LF");
+        }
         ps->line++;
-        DBG_EVENT("LF");
         return PS_STATUS_ONLINE;
     }
 
