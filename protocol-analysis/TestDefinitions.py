@@ -328,7 +328,43 @@ TESTS_SPACING = [
 		# --- Cleanup ---
 		Step('reset to DIP',	    [0x1B, 0x53], wait=1),
 		Step('2x CR+LF',	        [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
-	], compatible_series=["C"]),
+	]),
+	Test('// Pitch byte after CR repositioning', [
+		Step('print',           list(b'TEST PITCH IN CR REPOS'), wait=4),
+		Step('CR+LF',           [0x0D, 0x0A], wait=2),
+		Step('reset printer',   [0x1B, 0x0D, 0x50], wait=2),
+		Step('set 12cpi',       [0x1B, 0x1F, 11], wait=2),
+		Step('move to col 17',  [0x1B, 0x09, 17], wait=2),
+		Step('set left margin',  [0x1B, 0x39], wait=2),
+		Step('print',           list(b'MARGIN'), wait=2),
+		Step('CR at 12cpi',     [0x0D], wait=5, capture=True, comment='// CR with left margin at 12cpi — trailing 0xB2?'),
+		Step('print',           list(b'AFTER'), wait=2),
+		Step('reset to DIP',    [0x1B, 0x53], wait=2),
+		Step('2x CR+LF',        [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
+	]),
+	Test('// Pitch change at left margin vs col 1', [
+    Step('print',           list(b'TEST PITCH AT MARGIN'), wait=4),
+    Step('CR+LF',           [0x0D, 0x0A], wait=2),
+    Step('reset printer',   [0x1B, 0x0D, 0x50], wait=2),
+
+    # --- Set left margin at col 17, then try pitch change ---
+    Step('move to col 17',  [0x1B, 0x09, 17], wait=2),
+    Step('set left margin', [0x1B, 0x39], wait=2),
+    Step('print',           list(b'MARGIN'), wait=2),
+    Step('CR',              [0x0D], wait=2),  # back to col 17
+    Step('set 12cpi at LM', [0x1B, 0x1F, 11], wait=2, capture=True, comment='// Set 12cpi at col 17 (left margin) — accepted or swallowed?'),
+    Step('print',           list(b'12CPI?'), wait=2),
+    Step('CR+LF',           [0x0D, 0x0A], wait=1),
+
+    # --- CR to col 1 and try ---
+    Step('reset printer',   [0x1B, 0x0D, 0x50], wait=2),
+    Step('set 12cpi at c1', [0x1B, 0x1F, 11], wait=2, capture=True, comment='// Set 12cpi at col 1 (no margin) — baseline'),
+    Step('print',           list(b'12CPI'), wait=2),
+
+    # --- Cleanup ---
+    Step('reset to DIP',    [0x1B, 0x53], wait=2),
+    Step('2x CR+LF',        [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
+]),
 ]
 
 # =============================================================================
@@ -651,6 +687,37 @@ TESTS_SPECIAL = [
 		Step('reset from col 9',[0x1B, 0x0D, 0x50], wait=6, capture=True, comment='// Reset at col 9, does carriage return home?'),
 		Step('2x CR+LF',	    [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
 	]),
+]
+
+# =============================================================================
+# UNDERLINE RESET INVESTIGATION
+#     - Does ESC+S restore underline state?
+#     - Does the trailing byte change depending on whether underline was active?
+# =============================================================================
+TESTS_UNDERLINE_RESET = [
+    Test('// ESC + S: Reset underline state investigation', [
+        Step('print',           list(b'TEST ESC+S UNDERLINE STATE'), wait=4),
+        Step('CR+LF',           [0x0D, 0x0A], wait=2),
+
+        # --- Baseline: reset with no underline active ---
+        Step('print',           list(b'NO UL '), wait=2),
+        Step('reset to DIP',    [0x1B, 0x53], wait=6, capture=True, comment='// ESC+S with no underline — what trailing bytes?'),
+        Step('print',           list(b'AFTER'), wait=2),
+        Step('CR+LF',           [0x0D, 0x0A], wait=1),
+
+        # --- Reset with underline active ---
+        Step('enable underline',[0x1B, 0x45], wait=1),
+        Step('print',           list(b'UL ON '), wait=2),
+        Step('reset to DIP',    [0x1B, 0x53], wait=6, capture=True, comment='// ESC+S with underline on — does 0x8A re-enable or is it 0x8B?'),
+        Step('print',           list(b'AFTER'), wait=2),
+        Step('CR+LF',           [0x0D, 0x0A], wait=1),
+
+        # --- Check: is underline actually on after reset? ---
+        Step('print',           list(b'IS THIS UNDERLINED?'), wait=4),
+        Step('disable underline',[0x1B, 0x52], wait=1, capture=True, comment='// ESC+R — if underline was on, this disables it. If off, should still emit 0x8B.'),
+        Step('print',           list(b' NOT UNDERLINED'), wait=4),
+        Step('2x CR+LF',        [0x0D, 0x0A, 0x0D, 0x0A], wait=1),
+    ]),
 ]
 
 # =============================================================================

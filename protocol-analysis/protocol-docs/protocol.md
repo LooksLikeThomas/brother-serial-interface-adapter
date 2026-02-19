@@ -126,24 +126,23 @@ When switching from SI path to SO path, interface sends DEL (0x7F) to acknowledg
 | Step | Direction | Byte | Description |
 |------|-----------|------|-------------|
 | 1 | — | — | Power settles, noise |
-| 2 | Interface → Typewriter | 0xFE | Interface announces presence |
-| 3 | Typewriter → Interface | 0x30 | Device type response |
-| 3 | Interface → Typewriter | 0x7F (DEL) | Sent synchronously (direction change ack) |
+| 2 | Interface → Typewriter | 0xFE | Power-on initialization |
+| 3 | Typewriter → Interface | 0x00, \<ID\> | Model identification: AX20 = `0x00, 0x30`; CE650 = `0x00, 0x6A` |
+| 4 | Interface → Typewriter | 0x7F (DEL) | Direction change acknowledgment (sent on SI during SO transfer) |
 
 ---
 
 ## 2. SELECT Sequence (Mode Selection) AX20
 
-| Step | Direction | Byte | Description                             |
-|------|-----------|------|-----------------------------------------|
-| 1 | Interface → Typewriter | 0xF9 or 0xF8 | Mode select (terminal/typewriter)       |
-| 2 | Interface → Typewriter | 0xFD | ?                                       |
-| 3 | Typewriter → Interface | 0x04 | EOT (End of Transmission)               |
-| 4 | Interface → Typewriter | 0xF4 | ? (Reset margins and new line)          |
-| 5 | Interface → Typewriter | 0xB1 | ?                                       |
-| 6 | Interface → Typewriter | 0xB1 | ? Pitch setting (repeated)              |
-| 7 | Interface → Typewriter | 0x8B | Underline off (only if not at column 1) |
-| 8 | Interface → Typewriter | 0x00 × N | Space to restore column position        |
+| Step | Direction | Byte | Description |
+|------|-----------|------|-------------|
+| 1 | Interface → Typewriter | 0xF9 | Begin select sequence |
+| 2 | Interface → Typewriter | 0xFD | System identification query |
+| 3 | Typewriter → Interface | 0x00, 0x00, \<KB\>, 0x00, 0x00, 0x00 | Status response; KB = keyboard ID (KB1=0x04, KB2=0x24, KB3=0x44) |
+| 4 | Interface → Typewriter | 0x7F (DEL) | Direction change acknowledgment |
+| 5 | Interface → Typewriter | 0xF4 | Initialise print mechanism |
+| 6 | Interface → Typewriter | 0xB1 | Reset pitch to 10cpi (always fixed) |
+| 7 | Interface → Typewriter | \<P\> | Set active pitch (0xB1=10cpi, 0xB2=12cpi, 0xB3=15cpi) |
 
 ---
 
@@ -151,16 +150,18 @@ When switching from SI path to SO path, interface sends DEL (0x7F) to acknowledg
 
 | Byte | Name | Description |
 |------|------|-------------|
-| 0xFE | INIT | Interface announces presence |
-| 0xFD | SELECT | Select/configure command |
-| 0xF9 | TERMINAL MODE | Interface can read keyboard |
-| 0xF8 | TYPEWRITER MODE | Interface cannot read keyboard |
-| 0xF4 | RESET MARGINS + NEWLINE | Reset margins and new line |
-| 0xB1 | PITCH 10 | 10 characters per inch |
-| 0xB2 | PITCH 12 | 12 characters per inch |
-| 0xB3 | PITCH 15 | 15 characters per inch |
-| 0x8B | UNDERLINE OFF | Disable underline |
-| 0x00 | SPACE | Move one column right |
-| 0x04 | EOT | End of Transmission |
-| 0x30 | DEVICE TYPE | Typewriter identification |
-| 0x7F | DEL | Direction change acknowledgment |
+| 0xFE | INIT | Power-on initialization command sent by interface at startup |
+| 0xFD | STATUS QUERY | System command appearing in SELECT, RESET, and power-on sequences, always near 0x7F. Possibly triggers a status/identification query |
+| 0xF9 | SELECT | Begin select sequence; always the first byte of DC1 |
+| 0xF8 | DESELECT | Deselect / power down typewriter mechanism; used in DC3 |
+| 0xF4 | INIT MECHANISM | Initialise / power on typewriter print mechanism; appears in DC1 SELECT and ESC+CR+P RESET |
+| 0xB1 | PITCH 10 | Set pitch to 10 cpi (HMI mode byte) |
+| 0xB2 | PITCH 12 | Set pitch to 12 cpi (HMI mode byte) |
+| 0xB3 | PITCH 15 | Set pitch to 15 cpi (HMI mode byte) |
+| 0x8B | UNDERLINE OFF | Disable underline mode |
+| 0x8A | UNDERLINE ON | Enable underline mode |
+| 0x00 | ADVANCE | Advance carriage one position at the current pitch |
+| 0x04 | DESTRUCTIVE BS | Destructive backspace: move carriage back one position and erase previous character |
+| 0x30 | AX20 ID | AX20 model identification byte (typewriter → interface, power-on response only) |
+| 0x6A | CE650 ID | CE650 model identification byte (typewriter → interface, power-on response only) |
+| 0x7F | DEL | Direction change acknowledgment; sent on SI during SO transfers after SI→SO direction change |

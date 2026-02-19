@@ -1,0 +1,26 @@
+// Brother Serial Interface Protocol Test
+// Date: 2026-02-19 13:28:54
+// Interface: IF60
+// Typewriter: AX20
+// Keyboard: 1
+// Interface PITCH Selection: 10 (Default 10)
+// DIP Switches: 0b11111111111000 (0x3FF8)
+//
+//   1-1: UP    UP=RS-232C, DOWN=CDCC interface
+//   1-2: UP    UP=Terminal mode, DOWN=Printer mode
+//   1-3: UP    USA users can ignore
+//   1-4: DOWN  UP=ASCII Wheel, DOWN=Non-ASCII Wheel
+//   1-5: DOWN  UP=12-inch paper, DOWN=11-inch paper
+//   1-6: DOWN  UP=Auto skip perforation, DOWN=Non auto skip
+//   2-1: DOWN  UP=Local echo (half-duplex), DOWN=No echo (full-duplex)
+//   2-2: DOWN  UP=DC-1/DC-3 disabled, DOWN=enabled
+//   2-3: DOWN  UP=Auto line feed off, DOWN=Double spacing
+//   2-4: DOWN  UP=7-bit data, DOWN=8-bit data
+//   2-5: DOWN  UP=Even parity, DOWN=Odd parity
+//   2-6..2-8: 111  Baud: 9600
+//
+
+// ESC + S: Reset underline state investigation
+[ 0x1B, 0x53 ] = [ 0x9E, 0xB1, 0x8B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ] // ESC+S with no underline — what trailing bytes?
+[ 0x1B, 0x53 ] = [ 0x9E, 0xB1, 0x8B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8A ] // ESC+S with underline on — does 0x8A re-enable or is it 0x8B?
+[ 0x1B, 0x52 ] = [ 0x8B ] // ESC+R — if underline was on, this disables it. If off, should still emit 0x8B.

@@ -286,6 +286,8 @@ Per the manual, HMI = (n - 1) × 1/120 inch, where n is the parameter value:
 
 **Important:** 0xB1, 0xB2, and 0xB3 are **mode-setting bytes** — they configure the typewriter's step size for all subsequent movement, not movement commands in themselves. When the IF60 sends `[0x9E, <P>]` for CR, the pitch byte tells the typewriter mechanism "each step is now this wide." After that, every 0x00 the typewriter receives moves the carriage by that pitch-dependent amount. The pitch byte is a configuration command, not a motion command.
 
+**Pitch changes require the carriage to be at column 1.** The IF60 only emits the pitch byte on the bus when `column == 1`. If ESC+US+n is sent while the carriage is at any other position — including the left margin — the command is silently swallowed. The internal pitch state is presumably updated regardless, as the next CR returns the carriage to column 1 and includes the pitch byte, which applies the new pitch at that point. This was confirmed by testing ESC+US+11 (12cpi) at column 17 with a left margin set there: the command produced no bus output. The same command at column 1 produced `[0xB2]` as expected.
+
 ### Commands Affected by Pitch
 
 The pitch HMI byte (denoted `<P>` below) appears in these positions:
@@ -320,11 +322,26 @@ ESC+HT absolute positioning sends `[0x8B, 0x00 × N]` where N = (n - 1). The 0x0
 After setting a left margin with ESC+9, the CR command repositions the carriage to the margin. The repositioning sequence sends 0x8B (disable underline, defensively) followed by 0x00 advance bytes to step to the margin column:
 
 ```
-CR with left margin at col 17:
-  [0x9E, 0xB1, 0x8B, 0x00 × 16]
-   └ CR   └ pitch  └ underline  └ 16 advance steps (pitch-dependent)
-           └ mode    └ off
+CR with left margin at col 17 (underline off):
+  [0x9E, <P>, 0x8B, 0x00 × 16]
+   └ CR   └ pitch  └ underline  └ 16 advance steps
+                    └ off
+
+CR with left margin at col 17 (underline on):
+  [0x9E, <P>, 0x8B, 0x00 × 16, 0x8A]
+   └ CR   └ pitch  └ underline  └ 16 advance steps  └ underline
+                    └ off                             └ restored
 ```
+
+The `0x8B` / `0x8A` pair brackets all horizontal repositioning to prevent drawing an underline during carriage movement. The `0x8B` (disable underline) is always emitted before movement. The `0x8A` (enable underline) is only emitted after movement if underline was active before the move. This same bracket pattern appears in all horizontal repositioning: CR with left margin, ESC+HT absolute movement, ESC+S reset repositioning, and auto-wrap at right margin.
+
+The pitch byte in the CR command sets the step width before the repositioning movement. At 12cpi, the same CR with left margin at col 17 produces:
+
+```
+[0x9E, 0xB2, 0x8B, 0x00 × 16]
+```
+
+The byte count (16 advances) is identical — only the pitch byte changes. No trailing pitch byte is emitted after the repositioning. The pitch is set once at the start and applies to all subsequent `0x00` steps.
 
 Margins are stored as a **column number** (character position), not as an absolute physical distance. The 0x00 bytes in the repositioning sequence are the same pitch-dependent steps as all other movement — each 0x00 advances one position at the current pitch. The physical position of the margin therefore changes with the active pitch. Per the manual, left margin is set at the present position (ESC+9), and the minimum distance between left and right margins is 24/120 inch.
 
@@ -381,20 +398,21 @@ The 2026-02-13 captures provide a complete scan of all 32 control codes (0x00–
 
 ## 9. Carriage Return, Line Feed, and Form Feed Interaction
 
-The IF60 performs intelligent CR/LF combining, deduplication, and page-aware form feeding.
+The IF60 uses a CR lookahead mechanism: when CR is received, it is held pending until the next byte arrives. The following byte determines how the CR is emitted. This single mechanism explains CR+LF coalescing, LF+CR swallowing, and triple CR deduplication.
 
 ### CR+LF Combinations (AX20, <P> = pitch byte)
 
 | Input Sequence | Bus Output | Interpretation |
 |---------------|-----------|----------------|
-| `0x0D` (CR alone) | `[0x9E, <P>]` | Return to left margin, advance one pitch unit |
-| `0x0A` (LF alone) | `[0x9F]` | Line feed, carriage stays at current column |
-| `0x0D, 0x0A` (CR then LF) | `[0x02, <P>]` | Combined CR+LF as single command + pitch byte |
-| `0x0A, 0x0D` (LF then CR) | `[0x9F]` | Only the LF is output; CR is swallowed* |
-| `0x0A, 0x0A` (two LFs) | `[0x9F, 0x9F]` | Two independent line feeds |
-| `0x0D, 0x0D, 0x0D` (three CRs) | `[0x9E, <P>, 0x9E, <P>]` | Third CR swallowed (already at margin) |
-
-\* The CR after LF is swallowed because the LF does not move the carriage horizontally — if the carriage was already at the left margin before the LF, the subsequent CR has nothing to do. This was tested from column 1; behaviour from mid-line may differ.
+| `0x0D` (CR alone, more data follows) | `[0x9E, <P>]` | CR held pending, flushed when next non-LF byte arrives |
+| `0x0D` (CR alone, no more data) | (swallowed) | CR held pending indefinitely, never flushed |
+| `0x0A` (LF alone) | `[0x9F]` | Immediate line feed, carriage stays at current column |
+| `0x0D, 0x0A` (CR then LF) | `[0x02, <P>]` | CR held, LF arrives → coalesced into single bus command |
+| `0x0A, 0x0D` (LF then CR, no more data) | `[0x9F]` | LF emits immediately, CR held pending, swallowed (no more data) |
+| `0x0A, 0x0D, 0x20` (LF then CR then printable) | `[0x9F, 0x9E, <P>, 0x00]` | LF emits, CR held, printable flushes CR, then printable emits |
+| `0x0A, 0x0A` (two LFs) | `[0x9F, 0x9F]` | Two immediate line feeds (no lookahead on LF) |
+| `0x0D, 0x0D, 0x0D` (three CRs, no more data) | `[0x9E, <P>, 0x9E, <P>]` | Each CR flushes the previous; last CR swallowed (no more data) |
+| `0x0D, 0x0D, 0x0D, 0x58` (three CRs then 'X') | `[0x9E, <P>, 0x9E, <P>, 0x9E, <P>, 0x58]` | Each CR flushes the previous; 'X' flushes the last; all three emitted |
 
 ### Form Feed Behaviour
 
@@ -417,9 +435,9 @@ DIP 2-3 controls the default: DOWN = double spacing (auto LF enabled), UP = auto
 
 ### Key Observations
 
-**CR+LF combining:** When CR immediately precedes LF, the interface emits the combined command `0x02` (CR+LF) instead of separate `0x9E` + `0x9F`. This is an optimisation — `0x02` performs both operations as a single bus command.
+**CR lookahead mechanism:** The IF60 never emits CR immediately. When CR (0x0D) is received, it enters a pending state. The next byte determines the outcome: LF → coalesce to `0x02`; another CR → flush pending CR as `0x9E` and hold the new CR; any other byte → flush pending CR as `0x9E`. If no further byte arrives, the pending CR is silently discarded. This was confirmed by sending `[0x0A, 0x0D]` with a 10-second wait (CR swallowed), then `[0x0A, 0x0D, 0x20]` (CR flushed by the space), and `[0x0D, 0x0D, 0x0D, 0x58]` (all three CRs flushed by the trailing 'X'). The mechanism has no timeout — the CR remains pending indefinitely until resolved by the next byte or discarded at end of input.
 
-**Triple CR deduplication:** The interface tracks carriage position. After two CRs return the carriage to the left margin, the third CR is swallowed because it would be redundant.
+**LF has no lookahead:** LF (0x0A) emits `[0x9F]` immediately and unconditionally. It does not inspect what follows.
 
 **LF column persistence:** A standalone LF moves the paper vertically but leaves the carriage at its current horizontal position. This is consistent with the manual's description: "The subsequent data is over-printed in the same position as the carriage does not return to the left margin."
 
@@ -597,13 +615,13 @@ The following table lists all documented ESC sequences with their observed bus o
 
 | ESC Sequence | Function | AX20 Bus Output | CE650 Bus Output | CX | AX |
 |-------------|----------|-----------------|------------------|----|----|
-| ESC+HT+n | Absolute HT movement | `[0x8B, 0x00×N]` or `[0x8B, 0x03×N]` | `[0x9E, 0x8B, 0xB1, 0x00×N, 0xB1]` | O | O |
+| ESC+HT+n | Absolute HT movement | `[0x8B, 0x00×N, 0x8A?]` or `[0x8B, 0x03×N, 0x8A?]` | `[0x9E, 0x8B, 0xB1, 0x00×N, 0xB1]` | O | O |
 | † ESC+LF | Reverse paper feed (one VMI) | None (swallowed) | `[0x06, 0x06]` | O | |
 | ESC+VT+n | Absolute VT movement | `[0x9F × N]` | — | O | |
 | ESC+FF+n | Set page length | (internal) | — | O | O |
 | ESC+CR+P | Reset printer | `[0xF4,0xB1,0x8B,0xFD,0x7F]` | `[0xA0,0xF4,0xB1,0x8D,0x8B,0xFD]` | O | O |
 | ESC+RS+n | Set VMI (line spacing) | None (swallowed) | `[0xA0–0xA3]` | O | |
-| ESC+US+n | Set HMI (character pitch) | `[0xB1–0xB3]` | `[0xB1–0xB3]` | O | O |
+| ESC+US+n | Set HMI (character pitch) | `[0xB1–0xB3]`* | `[0xB1–0xB3]` | O | O |
 | ESC+" | Auto LF ON | (internal) | — | O | O |
 | † ESC+# | Auto LF OFF | (internal) | — | O | O |
 | † ESC+& | Clear bold, shadow, double-strike | None (swallowed) | `[0x8D]` | O | O |
@@ -622,7 +640,7 @@ The following table lists all documented ESC sequences with their observed bus o
 | ESC+L | Set bottom margin | (internal) | — | O | |
 | † ESC+O | Set bold print | None (swallowed) | `[0x8C]` | O | |
 | ESC+R | Disable underline | `[0x8B]` | 9 bytes (noisy) | O | O |
-| ESC+S | Reset to DIP defaults | `[0x9E,0xB1,0x8B,0x00×6,0x8A]` | `[0xA0, 0xB1]` | O | O |
+| ESC+S | Reset to DIP defaults | `[0x9E,<P>,0x8B,0x00×N,0x8A?]` | `[0xA0, 0xB1]` | O | O |
 | † ESC+T | Set top margin | (internal) | — | O | |
 | † ESC+U | Half LF down (1/12") | None (swallowed) | `[0x07, 0xA0]` | O | |
 | † ESC+W | Set shadow print | None (swallowed) | `[0x8C]` | O | |
@@ -635,6 +653,19 @@ Notes:
 - "(internal)" means the command is processed by the IF60 without producing bus output — the state is stored in the interface's internal memory.
 - "None (swallowed)" means the command is silently discarded because the AX20 does not support the feature.
 - AX-series machines do not support: VMI, reverse LF, half LF (sub/superscript), bold/shadow/double-strike, VT stops, top/bottom margins, or auto backward print.
+- \* ESC+US+n only produces bus output when the carriage is at column 1. At any other position the command is silently swallowed. See §7.
+
+**ESC+S repositioning detail:** ESC+S resets internal settings (pitch, margins, tabs, auto-LF) to DIP switch defaults, then repositions the carriage back to its pre-reset column. The bus output is a CR to column 1 (required for pitch change), followed by a standard horizontal repositioning to the saved column position. The underline bracket (`0x8B` before, `0x8A` after) is conditional — `0x8A` only appears if underline was active before the reset. Underline state is preserved across ESC+S; it is not reset to a DIP default.
+
+```
+ESC+S from col 7, underline off:
+  [0x9E, <P>, 0x8B, 0x00 × 6]
+
+ESC+S from col 7, underline on:
+  [0x9E, <P>, 0x8B, 0x00 × 6, 0x8A]
+```
+
+The `0x00` count equals (column - 1), confirmed by testing at different carriage positions. The pitch byte `<P>` is the new (reset) default pitch.
 
 
 ---
@@ -1120,11 +1151,8 @@ The AX20 returns a 6-byte status with the keyboard ID in byte 3. The CE650 retur
 - **0xFD**: Exact function unknown. Always appears near 0x7F in SELECT, RESET, and power-on. Likely a status query or handshake.
 - **0xFE**: Confirmed as a power-on initialization command. Can it be sent at any time to re-identify the typewriter, or is it strictly a boot-time operation?
 - **DIP 1-4 + KB3**: No test with KB3 and DIP 1-4=UP. Does the symbol layout also collapse to KB1 when the ASCII wheel is set, or does it remain independent?
-- **Pitch and Space (AX20)**: On the AX20, 0x00 advances one HMI unit at the current pitch. The pitch byte (0xB1/B2/B3) sets the step size, and all subsequent 0x00 steps use that size. The remaining question is whether the AX20 mechanism physically varies its step size when the pitch mode byte changes, or whether the mechanism has a single fixed step. Physical measurement would confirm.
 - **Pitch and SELECT (CE650)**: Does the CE650 SELECT sequence also end with a pitch-dependent byte? Need a CE650 capture at non-default pitch.
-- **Triple CR behaviour**: Why are two CRs output before the third is suppressed? Is the second CR meaningful, or is this a pipeline delay in position tracking?
 - **CE650 printable characters**: The CE650 capture had noise issues. A clean recapture would confirm whether the CE650's wheel position mapping differs from the AX20's.
-- **Spell checker / ETX/ACK protocol**: If the US-market spell checker accessory used ETX/EOT/ENQ/ACK/NAK, what was the full handshake sequence? Alternatively, if DIP 1-3 controls Diablo 630 ETX/ACK mode, what host-side software required this?
 - **0xF2 (CE650 control)**: Is this specifically the paper feed motor? Does it have parameters, or is it purely on/off?
 - **0x14 and 0x92**: These additional CR and newline bus bytes are recognized by the typewriter but not generated by the IF60. What are the exact behavioral differences from 0x9E and 0x02? Are they related to margin handling or formatting state?
 - **0x8E/0x8F (repeat/end-repeat)**: What commands can be repeated? Is only the immediately preceding command eligible, or can 0x8E repeat a longer sequence? Are there limits to the repeat count?
