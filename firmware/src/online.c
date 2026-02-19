@@ -30,6 +30,60 @@
 #include "debug.h"
 
 // ==============================================
+// Repositioning Helper
+// ==============================================
+//
+// Emits a horizontal repositioning sequence into ps->bsb.
+// Always sends 0x8B first (disables underline during movement).
+// After movement, re-enables underline with 0x8A if underline
+// is currently active.
+//
+// Positive delta: 0x00 advance steps.
+// Negative delta: 0x03 backspace steps.
+// Zero delta: no-op.
+//
+// Does not update ps->column — caller is responsible.
+//
+static void bsbAddMove(Protocol *ps, int16_t delta) {
+    if (delta == 0) return;
+    bsbAddByte(&ps->bsb, 0x8B);
+    if (delta > 0) bsbAddRepeat(&ps->bsb, 0x00, (uint8_t)delta);
+    if (delta < 0) bsbAddRepeat(&ps->bsb, 0x03, (uint8_t)(-delta));
+    if (ps->underlineEnabled) bsbAddByte(&ps->bsb, 0x8A);
+}
+
+// ==============================================
+// Carriage Return Helper
+// ==============================================
+//
+// Appends a standalone CR sequence to ps->bsb:
+//   [0x9E, pitchByte] + advance to left margin
+//
+// Updates ps->column = ps->leftMargin.
+//
+static void bsbAddCR(Protocol *ps) {
+    bsbAddByte2(&ps->bsb, 0x9E, ps->pitchByte);
+    bsbAddMove(ps, (int16_t)(ps->leftMargin - 1));
+    ps->column = ps->leftMargin;
+}
+
+// ==============================================
+// CR+LF Helper
+// ==============================================
+//
+// Appends a combined CR+LF sequence to ps->bsb:
+//   [0x02, pitchByte] + advance to left margin
+//
+// Updates ps->column = ps->leftMargin and increments ps->line.
+//
+static void bsbAddCRLF(Protocol *ps) {
+    bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
+    bsbAddMove(ps, (int16_t)(ps->leftMargin - 1));
+    ps->column = ps->leftMargin;
+    ps->line++;
+}
+
+// ==============================================
 // ESC Sequence Action Handler
 // ==============================================
 //
@@ -72,18 +126,21 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
         case ESC_UNDERLINE_ON:
             bsbClear(&ps->bsb);
             bsbAddByte(&ps->bsb, 0x8A);
+            ps->underlineEnabled = true;
             DBG_EVENT("ESC: UNDERLINE ON");
             break;
 
         case ESC_UNDERLINE_OFF:
             bsbClear(&ps->bsb);
             bsbAddByte(&ps->bsb, 0x8B);
+            ps->underlineEnabled = false;
             DBG_EVENT("ESC: UNDERLINE OFF");
             break;
 
         case ESC_CLEAR_FORMAT:
             bsbClear(&ps->bsb);
             bsbAddByte(&ps->bsb, 0x8B);
+            ps->underlineEnabled = false;
             DBG_EVENT("ESC: CLEAR FORMAT");
             break;
 
@@ -154,6 +211,12 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
             if (param == 0xB1 || param == 0xB2 || param == 0xB3) {
                 ps->pitchByte = param;
                 ps->rightMargin = rightMarginForPitch(param);
+
+                if (ps->column != 1) {
+                    DBG_EVENT_HEX("ESC: SET PITCH DEFERRED (NOT AT COL 1)", param);
+                    break;
+                }
+
                 bsbClear(&ps->bsb);
                 bsbAddByte(&ps->bsb, param);
                 DBG_EVENT_HEX("ESC: SET PITCH", param);
@@ -171,8 +234,8 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
         //
         // Forward movement uses 0x00 advance steps.
         // Backward movement uses 0x03 backspace steps.
-        // 0x8B (disable underline) is sent first to prevent
-        // drawing an underline during repositioning.
+        // bsbAddMove() disables underline during movement and
+        // re-enables it afterward if underline was active.
         //
         // No-op if already at the target column.
         //
@@ -190,14 +253,7 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
             }
 
             bsbClear(&ps->bsb);
-            bsbAddByte(&ps->bsb, 0x8B);
-
-            if (target > ps->column) {
-                bsbAddRepeat(&ps->bsb, 0x00, target - ps->column);
-            } else {
-                bsbAddRepeat(&ps->bsb, 0x03, ps->column - target);
-            }
-
+            bsbAddMove(ps, (int16_t)target - (int16_t)ps->column);
             ps->column = target;
             DBG_EVENT_HEX("ESC: ABS HT TO", target);
             break;
@@ -211,24 +267,26 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
         //   - Auto-LF reverts to configured default
         //   - Carriage position reset
         //
-        // Emits CR + pitch byte + disable underline to put
-        // the typewriter mechanism in a known state.
+        // Emits CR to home the carriage, then repositions to
+        // the saved column so the physical position is preserved.
         //
-        case ESC_RESET_DEFAULTS:
+        case ESC_RESET_DEFAULTS: {
+            uint8_t savedColumn = ps->column;
             ps->autoLfEnabled = AUTO_LINE_FEED;
             ps->pitchByte = PITCH_BYTE;
             ps->leftMargin = 1;
             ps->rightMargin = rightMarginForPitch(ps->pitchByte);
             tabInit(&ps->tabs, TAB_EVERY_N, ps->rightMargin);
-            ps->column = ps->leftMargin;
+            ps->underlineEnabled = false;
             ps->line = 1;
 
             bsbClear(&ps->bsb);
-            bsbAddByte2(&ps->bsb, 0x9E, ps->pitchByte);
-            bsbAddByte(&ps->bsb, 0x8B);
-            bsbAddByte(&ps->bsb, 0x8A);
+            bsbAddCR(ps);
+            bsbAddMove(ps, (int16_t)(savedColumn - 1));
+            ps->column = savedColumn;
             DBG_EVENT("ESC: RESET DEFAULTS");
             break;
+        }
 
         // ----- Wheel Probes -----
         // ESC+Y prints the physical glyph at the space (0x20) wheel
@@ -302,9 +360,9 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
 //
 // The check order matters:
 //   1. DC3 (deselect trigger) — must be caught before translation
-//   2. ESC sequences — consume 2–3 bytes via peek-ahead
-//   3. LF swallow — must precede normal LF handling
-//   4. Control codes (LF, FF, CR, BS, HT) — each with
+//   2. CR — peek-ahead to coalesce CR+LF before LF is seen
+//   3. ESC sequences — consume 2–3 bytes via peek-ahead
+//   4. Control codes (LF, FF, BS, HT) — each with
 //      specific bus sequences and state side-effects
 //   5. Auto-wrap — triggers before the character is consumed
 //   6. Printable characters — translated via translateSerialToBus()
@@ -344,25 +402,18 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
             // CR+LF: coalesce
             uint8_t lf;
             siBufferPop(&lf);
-            bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
-            ps->line++;
+            bsbAddCRLF(ps);
             DBG_EVENT("CR+LF");
         } else if (ps->autoLfEnabled) {
             // Auto-LF: CR becomes CR+LF
-            bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
-            ps->line++;
+            bsbAddCRLF(ps);
             DBG_EVENT("CR+AUTO-LF");
         } else {
             // Standalone CR
-            bsbAddByte2(&ps->bsb, 0x9E, ps->pitchByte);
+            bsbAddCR(ps);
             DBG_EVENT("CR");
         }
 
-        if (ps->leftMargin > 1) {
-            bsbAddByte(&ps->bsb, 0x8B);
-            bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
-        }
-        ps->column = ps->leftMargin;
         return PS_STATUS_ONLINE;
     }
 
@@ -406,18 +457,13 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
         siBufferPop(&si_byte);
         bsbClear(&ps->bsb);
         if (AUTO_CARRIAGE_RETURN) {
-            bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
-            if (ps->leftMargin > 1) {
-                bsbAddByte(&ps->bsb, 0x8B);
-                bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
-            }
-            ps->column = ps->leftMargin;
+            bsbAddCRLF(ps);
             DBG_EVENT("LF+AUTO-CR");
         } else {
             bsbAddByte(&ps->bsb, 0x9F);
+            ps->line++;
             DBG_EVENT("LF");
         }
-        ps->line++;
         return PS_STATUS_ONLINE;
     }
 
@@ -444,15 +490,7 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
     //
     if (si_byte >= 0x20 && si_byte <= 0x7E && ps->column > ps->rightMargin) {
         bsbClear(&ps->bsb);
-        bsbAddByte2(&ps->bsb, 0x02, ps->pitchByte);
-
-        if (ps->leftMargin > 1) {
-            bsbAddByte(&ps->bsb, 0x8B);
-            bsbAddRepeat(&ps->bsb, 0x00, ps->leftMargin - 1);
-        }
-
-        ps->column = ps->leftMargin;
-        ps->line++;
+        bsbAddCRLF(ps);
         DBG_EVENT("AUTO WRAP");
         return PS_STATUS_ONLINE;
     }

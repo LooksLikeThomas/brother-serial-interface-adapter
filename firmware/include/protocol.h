@@ -109,6 +109,7 @@ typedef struct {
     uint8_t keyboardID;         // From SELECT response byte 3 (0x04/0x24/0x44)
     uint8_t pitchByte;          // Current HMI byte: 0xB1 (10cpi), 0xB2 (12cpi), 0xB3 (15cpi)
     bool autoLfEnabled;         // Set via config or ESC Sequence. Adds LF after CR
+    bool underlineEnabled;      // Tracks active underline state (ESC E/R/X)
 
     // Reverse path state (typewriter → serial)
     bool codePressed;           // True between bus 0x88 (Code down) and 0x89 (Code up)

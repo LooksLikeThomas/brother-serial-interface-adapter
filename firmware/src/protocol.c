@@ -63,6 +63,7 @@ static void protocolReset(Protocol *ps) {
     ps->deselectState = DESEL_IDLE;
     ps->codePressed = false;
     ps->autoLfEnabled = AUTO_LINE_FEED;
+    ps->underlineEnabled = false;
     ps->keyboardID = KEYBOARD_KB1;
     bsbClear(&ps->bsb);
     ps->pitchByte = PITCH_BYTE;
