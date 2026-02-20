@@ -10,6 +10,7 @@
 #include <string.h>
 #include "transfer.h"
 #include "protocol.h"
+#include "buffers.h"
 
 // ==============================================
 // Buffer Configuration
@@ -24,7 +25,7 @@ static volatile uint16_t bufferTail = 0;  // Read position
 static volatile bool overflowOccurred = false;
 static volatile uint32_t lastLogTime = 0;
 
-static const char OVERFLOW_MSG[] = "[OVERFLOW]\n\r";
+static const char OVERFLOW_MSG[] = "[OVERFLOW]\r\n";
 
 // ==============================================
 // State and Status Name Tables
@@ -167,14 +168,14 @@ void debugTransition(int from, int to, int status) {
 
     bufferAppend("(");
     bufferAppend(getTransferStatusName((TransferStatus)status));
-    bufferAppend(")\r");
+    bufferAppend(")\r\n");
 }
 
 void debugEvent(const char* event) {
     bufferAppendTimestamp();
     bufferAppend("[EVENT] ");
     bufferAppend_P(event);
-    bufferAppend("\r");
+    bufferAppend("\r\n");
 }
 
 void debugEventHex(const char* event, uint8_t val) {
@@ -197,7 +198,7 @@ void debugEventHex(const char* event, uint8_t val) {
     }
 
     bufferAppend(byte_to_hex_str(val));
-    bufferAppend("\r");
+    bufferAppend("\r\n");
 }
 
 void debugEventHexChar(const char* event, uint8_t val) {
@@ -226,24 +227,14 @@ void debugEventHexChar(const char* event, uint8_t val) {
     char charStr[5] = {' ', '\'', (char)val, '\'','\0'};
     bufferAppend(charStr);
     
-    bufferAppend("\r");
+    bufferAppend("\r\n");
 }
 
 void debugError(const char* error) {
     bufferAppendTimestamp();
     bufferAppend("[ERROR] !!");
     bufferAppend_P(error);
-    bufferAppend("\r");
-}
-
-void debugBufferStatus(uint16_t currentCount) {
-    bufferAppendTimestamp();
-    bufferAppend("[BUFFER] ");
-    bufferAppend("\t\t"); 
-    bufferAppendNumber(currentCount);
-    bufferAppend(" / ");
-    bufferAppendNumber(SI_BUFFER_SIZE); // Now automatically the total capacity!
-    bufferAppend(" bytes\r");
+    bufferAppend("\r\n");
 }
 
 bool debugCanFlush(int status) {

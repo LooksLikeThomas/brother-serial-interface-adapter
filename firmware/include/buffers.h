@@ -11,16 +11,8 @@
 #ifndef BUFFERS_H
 #define BUFFERS_H
 
-#include "config.h"
-
 #include <stdint.h>
 #include <stdbool.h>
-
-// EEPROM Usable flag
-#define USE_EEPROM_BUFFER (CONF_ENABLE_EEPROM && __AVR_ATmega328P__)
-
-// Total logical capacity for SI
-#define SI_BUFFER_SIZE (SI_RAMBUFFER_SIZE + (USE_EEPROM_BUFFER * SI_EEPROMBUFFER_SIZE))
 
 #ifdef __cplusplus
 extern "C" {

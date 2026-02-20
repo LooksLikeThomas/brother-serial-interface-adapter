@@ -117,13 +117,12 @@ void loop() {
             readCount++;
         }
     }
+
+    #if FLOWCONTROL_ENABLED
+        manageFlowControl();
+    #endif
     
     if (readCount > 0) {
-        #if FLOWCONTROL_ENABLED
-            manageFlowControl();
-        #endif
-
-        DBG_BUFFER_STATUS(siBufferCount());
         DBG_EVENT_HEX("SERIAL BATCH READ", readCount);
     }
 

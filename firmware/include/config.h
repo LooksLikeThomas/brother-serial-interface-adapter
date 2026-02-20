@@ -23,22 +23,17 @@ extern "C" {
 // Debug Logging Enable
 // Controls the inclusion of debug code at compile time.
 //
-// false = Disable debugging (Production build; removes logging overhead)
-// true  = Enable debugging (Writes buffered debug messages to the Serial port)
-#define DEBUG_ENABLED 0
+// 0 = Disable debugging (Production build; removes logging overhead)
+// 1 = Enable debugging (Writes buffered debug messages to the Serial port)
+#define DEBUG_ENABLED 1
 
 
 // ==============================================
 // Buffers
 // ==============================================
 
-// Optional EEPROM Spillover Buffer (Only on Arduino Uno)
-// 0 = Disabled, 1 = Enabled
-#define CONF_ENABLE_EEPROM 1
-
 // Physical memory allocations
-#define SI_RAMBUFFER_SIZE    512
-#define SI_EEPROMBUFFER_SIZE 1024
+#define SI_BUFFER_SIZE 512
 
 // Buffer size for SO (incoming from typewriter)
 #define SO_BUFFER_SIZE 16
@@ -56,7 +51,7 @@ extern "C" {
 //
 
 #define FLOWCONTROL_ENABLED 1
-#define FLOW_HIGH_WATER (SI_BUFFER_SIZE * 3 / 4)    // Send XOFF above this
+#define FLOW_HIGH_WATER (SI_BUFFER_SIZE * 2 / 4)    // Send XOFF above this
 #define FLOW_LOW_WATER  (SI_BUFFER_SIZE / 4)        // Send XON below this
 
 // ==============================================
@@ -137,9 +132,9 @@ static const bool AUTO_CARRIAGE_RETURN = true;
 
 static inline uint8_t rightMarginForPitch(uint8_t pitch) {
     switch (pitch) {
-        case 0xB2: return 96;   // 12 cpi × 8"
-        case 0xB3: return 120;  // 15 cpi × 8"
-        default:   return 80;   // 10 cpi × 8"
+        case 0xB2: return 84;   // 12 cpi × 7"
+        case 0xB3: return 105;  // 15 cpi × 7"
+        default:   return 70;   // 10 cpi × 7"
     }
 }
 
@@ -165,7 +160,7 @@ static const uint8_t SERIAL_PARITY = 0;
 
 // Serial Baud Rate
 // Speed of the serial connection in bits per second.
-// Maximum supported rate: 112500
+// Maximum supported rate: 115200
 static const uint32_t SERIAL_BAUD = 9600;
 
 #ifdef __cplusplus

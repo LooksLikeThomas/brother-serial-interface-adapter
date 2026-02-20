@@ -7,14 +7,11 @@
 // Buffer is full when (head + 1) % size == tail
 //
 #include "buffers.h"
-
-#if USE_EEPROM_BUFFER
-    #include "eeprombuffer.h"
-#endif
+#include "config.h"
 
 // ----- SI Buffer Storage (outgoing to typewriter) -----
 
-static volatile uint8_t siBuffer[SI_RAMBUFFER_SIZE];
+static volatile uint8_t siBuffer[SI_BUFFER_SIZE];
 static volatile uint16_t siHead = 0;    // Write position
 static volatile uint16_t siTail = 0;    // Read position
 
@@ -29,67 +26,28 @@ static volatile uint8_t soTail = 0;    // Read position
 // ==============================================
 
 bool siBufferEmpty() {
-    #if USE_EEPROM_BUFFER
-        return (siHead == siTail) && eeBufferEmpty();
-    #else
-        return siHead == siTail;
-    #endif
+    return siHead == siTail;
 }
 
 bool siBufferFull() {
-    bool ramFull = (((siHead + 1) % SI_RAMBUFFER_SIZE) == siTail);
-
-    #if USE_EEPROM_BUFFER
-        return ramFull && eeBufferFull();
-    #else
-        return ramFull;
-    #endif
+    return (((siHead + 1) % SI_BUFFER_SIZE) == siTail);
 }
 
 uint16_t siBufferCount(void) {
-    uint16_t ramCount = (siHead - siTail + SI_RAMBUFFER_SIZE) % SI_RAMBUFFER_SIZE;
-
-    #if USE_EEPROM_BUFFER
-        return ramCount + eeBufferCount(); 
-    #else
-        return ramCount;
-    #endif
+    return (siHead - siTail + SI_BUFFER_SIZE) % SI_BUFFER_SIZE;
 }
 
 bool siBufferPush(uint8_t byte) {
-    bool ramFull = (((siHead + 1) % SI_RAMBUFFER_SIZE) == siTail);
-
-    #if USE_EEPROM_BUFFER
-        // SPILLOVER LOGIC: If EEPROM has data, or RAM is full, push to EEPROM
-        if (!eeBufferEmpty() || ramFull) {
-            return eeBufferPush(byte);
-        }
-    #else
-        if (ramFull) return false;
-    #endif
-
-    // Normal RAM push
+    if (siBufferFull()) return false;
     siBuffer[siHead] = byte;
-    siHead = (siHead + 1) % SI_RAMBUFFER_SIZE;
+    siHead = (siHead + 1) % SI_BUFFER_SIZE;
     return true;
 }
 
 bool siBufferPop(uint8_t *byte) {
     if (siBufferEmpty()) return false;
     *byte = siBuffer[siTail];
-    siTail = (siTail + 1) % SI_RAMBUFFER_SIZE;
-
-    #if USE_EEPROM_BUFFER
-        // Siphon data from EEPROM back into RAM
-        if (!eeBufferEmpty()) {
-            uint8_t eeByte;
-            if (eeBufferPop(&eeByte)) {
-                siBuffer[siHead] = eeByte;
-                siHead = (siHead + 1) % SI_RAMBUFFER_SIZE;
-            }
-        }
-    #endif
-
+    siTail = (siTail + 1) % SI_BUFFER_SIZE;
     return true;
 }
 
@@ -100,12 +58,12 @@ uint8_t siBufferPeek() {
 // SI Buffer Multi-Byte Helpers
 
 uint8_t siBufferPeekN(uint8_t *buf, uint8_t n) {
-    uint16_t ramCount = (siHead - siTail + SI_RAMBUFFER_SIZE) % SI_RAMBUFFER_SIZE;
-    if (n > ramCount) n = ramCount;
-    uint8_t pos = siTail;
+    uint16_t count = siBufferCount();
+    if (n > count) n = count;
+    uint16_t pos = siTail;
     for (uint8_t i = 0; i < n; i++) {
         buf[i] = siBuffer[pos];
-        pos = (pos + 1) % SI_RAMBUFFER_SIZE;
+        pos = (pos + 1) % SI_BUFFER_SIZE;
     }
     return n;
 }
