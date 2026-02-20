@@ -489,6 +489,13 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
     // after the wrap sequence has been drained from BSB.
     //
     if (si_byte >= 0x20 && si_byte <= 0x7E && ps->column > ps->rightMargin) {
+
+        // Remove spaces from left start of line
+        if(si_byte == 0x20){
+            siBufferPop(&si_byte);
+            DBG_EVENT("SP SWALLOWED (AT RMARGIN)");
+        }
+
         bsbClear(&ps->bsb);
         bsbAddCRLF(ps);
         DBG_EVENT("AUTO WRAP");
@@ -551,7 +558,7 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
     bsbClear(&ps->bsb);
     bsbAddResult(&ps->bsb, r);
     ps->column += serialHtDelta(si_byte);
-    DBG_EVENT_HEX_CHAR("SI TRANSLATED", si_byte);
+    DBG_CHAR_EVENT_HEX_CHAR("SI TRANSLATED", si_byte);
     return PS_STATUS_ONLINE;
 }
 
@@ -580,7 +587,7 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
 ProtocolStatus onlineHandleSO(Protocol *ps) {
 
     uint8_t b = ps->ts.receivedByte;
-    DBG_EVENT_HEX("SO RECEIVED", b);
+    DBG_CHAR_EVENT_HEX("SO RECEIVED", b);
 
     // ----- Code Key Modifier Tracking -----
     // 0x88 = Code key pressed, 0x89 = Code key released.
@@ -625,7 +632,7 @@ ProtocolStatus onlineHandleSO(Protocol *ps) {
     //
     for (uint8_t i = 0; i < r.len; i++) {
         soBufferPush(r.bytes[i]);
-        DBG_EVENT_HEX_CHAR("SO MAPPED", r.bytes[i]);
+        DBG_CHAR_EVENT_HEX_CHAR("SO MAPPED", r.bytes[i]);
     }
 
     return PS_STATUS_ONLINE;

@@ -70,6 +70,15 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_BUFFER_BUSY()               debugBufferBusy()
 #define DBG_B_TO_HEX(val)               byte_to_hex_str((unsigned)(char)(val))
 
+// Character-level debug macros — guarded by DEBUG_CHAR_VERBOSE
+#if DEBUG_CHAR_VERBOSE
+#define DBG_CHAR_EVENT_HEX(evt, val)      DBG_EVENT_HEX(evt, val)
+#define DBG_CHAR_EVENT_HEX_CHAR(evt, val) DBG_EVENT_HEX_CHAR(evt, val)
+#else
+#define DBG_CHAR_EVENT_HEX(evt, val)      ((void)0)
+#define DBG_CHAR_EVENT_HEX_CHAR(evt, val) ((void)0)
+#endif
+
 #else
 
 // No-op macros when debugging is disabled
@@ -82,6 +91,8 @@ const char* byte_to_hex_str(unsigned char val);
 #define DBG_FLUSH_IF_SAFE(status)       ((void)0)
 #define DBG_BUFFER_BUSY()               (false)
 #define DBG_B_TO_HEX(val)               ((void)0)
+#define DBG_CHAR_EVENT_HEX(evt, val)    ((void)0)
+#define DBG_CHAR_EVENT_HEX_CHAR(evt, val) ((void)0)
 
 #endif // DEBUG_ENABLED
 

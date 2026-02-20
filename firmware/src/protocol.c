@@ -302,6 +302,14 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 return PS_STATUS_OFFLINE;
             }
             
+            // Start Select after 3 seconds
+            if (AUTO_SELECT && now - ps->stateEnteredAt >= 3000000){
+                DBG_EVENT("AUTOSELECT - START SELECT");
+                ps->selectState = SEL_QUEUE_MODE;
+                transitionTo(ps, PS_SELECT);
+                return PS_STATUS_SELECTING;
+            }
+            
             // Check if PC send something
             if (!siBufferEmpty()) {
                 uint8_t si_byte = siBufferPeek();
@@ -501,7 +509,7 @@ ProtocolStatus pollProtocol(Protocol *ps) {
             if (status == TS_STATUS_IDLE && bsbHasData(&ps->bsb)) {
                 uint8_t b = bsbNext(&ps->bsb);
                 transferQueueSI(ts, b);
-                DBG_EVENT_HEX("SI QUEUED", b);
+                DBG_CHAR_EVENT_HEX("SI QUEUED", b);
                 return PS_STATUS_ONLINE;
             }
 

@@ -58,7 +58,10 @@ void setup() {
 
     // Initialize debug system
     DBG_INIT();
-    
+
+    // Initialize buffer subsystem (resets heatshrink encoder/decoder when compression enabled)
+    buffersInit();
+
     // Initialize protocol layer (state machine)
     // Transfer layer will be initialized when typewriter powers on
     protocolInit(&ps);
@@ -123,7 +126,8 @@ void loop() {
     #endif
     
     if (readCount > 0) {
-        DBG_EVENT_HEX("SERIAL BATCH READ", readCount);
+        DBG_EVENT_HEX("SERIAL READ", readCount);
+        DBG_EVENT_HEX("SI BUFFER LEVEL", siBufferCount());
     }
 
     // Run state machines
@@ -133,10 +137,7 @@ void loop() {
     uint8_t so_byte;
     if (soBufferPop(&so_byte)) {
 
-        if (DEBUG_ENABLED){
-            DBG_EVENT_HEX_CHAR("SERIAL SEND", so_byte);
-        }else{
-            Serial.write(so_byte);
-        }
+        DBG_CHAR_EVENT_HEX_CHAR("SERIAL SEND", so_byte);
+        Serial.write(so_byte);
     }
 }

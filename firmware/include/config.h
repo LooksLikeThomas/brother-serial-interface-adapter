@@ -22,37 +22,52 @@ extern "C" {
 
 // Debug Logging Enable
 // Controls the inclusion of debug code at compile time.
+// Debug 
 //
 // 0 = Disable debugging (Production build; removes logging overhead)
 // 1 = Enable debugging (Writes buffered debug messages to the Serial port)
-#define DEBUG_ENABLED 1
+#define DEBUG_ENABLED 0
 
+// Set to 1 to log per-character SI/SO events (high volume).
+// Set to 0 to suppress character-level logging while keeping all other debug output.
+#define DEBUG_CHAR_VERBOSE 0
+
+//Debug Buffer config
+//
+// Size of the debug log ring buffer in bytes                                  
+#define DEBUG_BUFFER_SIZE 128
+// Max bytes flushed to Serial per flush call (prevents blocking the main loop)
+#define DEBUG_FLUSH_CHUNK_SIZE 64
 
 // ==============================================
 // Buffers
 // ==============================================
 
 // Physical memory allocations
-#define SI_BUFFER_SIZE 512
+#define SI_BUFFER_SIZE (1024 - (DEBUG_ENABLED * 512))
 
 // Buffer size for SO (incoming from typewriter)
 #define SO_BUFFER_SIZE 16
 
 // ==============================================
-// Software Flow Control (XON/XOFF)
+// Compression Configuration
 // ==============================================
 //
-// When the SI buffer fills up, the interface sends XOFF to tell
-// the PC to stop sending. When the buffer drains, it sends XON
-// to resume. The PC's terminal program must have XON/XOFF enabled.
+// Set to 1 to enable heatshrink compression on the SI buffer.
+// Set to 0 to compile out all compression code entirely.
 //
-// HIGH_WATER: Send XOFF when buffer reaches this level
-// LOW_WATER:  Send XON when buffer drops to this level
-//
+#define USE_COMPRESSION 1
 
-#define FLOWCONTROL_ENABLED 1
-#define FLOW_HIGH_WATER (SI_BUFFER_SIZE * 2 / 4)    // Send XOFF above this
-#define FLOW_LOW_WATER  (SI_BUFFER_SIZE / 4)        // Send XON below this
+#if USE_COMPRESSION
+
+// Heatshrink parameters (must also match heatshrink_config.h)
+#define HS_WINDOW_SZ2 6
+#define HS_LOOKAHEAD_SZ2 4
+
+// Peek buffer: must be > your max peek-ahead (3 byte escape seq)
+#define PEEK_BUF_SIZE           8
+
+#endif // USE_COMPRESSION
 
 // ==============================================
 // Operation Modes
@@ -61,6 +76,9 @@ extern "C" {
 // System Operation Mode
 // #define MODE_BYTE 0xF8   // Printer Mode  (PC --> Typewriter)
 #define MODE_BYTE 0xF9      // Terminal Mode (PC <-> Typewriter)
+
+// Automaticly Start Selecting typewriter when powered on
+#define AUTO_SELECT 1
 
 // ASCII Wheel Selection
 // Controls how country/region switches are interpreted based on the wheel used.
@@ -113,6 +131,7 @@ static const bool AUTO_LINE_FEED = true;
 
 // Automatic Carriage Return
 // Treats standalone LF as CR+LF for Unix/Linux compatibility.
+// Also adds +LF to CR coming from Typewriter
 // Does not affect explicit CR+LF pairs (handled by CR lookahead).
 //
 // false = Standalone LF moves paper only (typewriter standard)
@@ -162,6 +181,21 @@ static const uint8_t SERIAL_PARITY = 0;
 // Speed of the serial connection in bits per second.
 // Maximum supported rate: 115200
 static const uint32_t SERIAL_BAUD = 9600;
+
+// Software Flow Control (XON/XOFF)
+//
+// When the SI buffer fills up, the interface sends XOFF to tell
+// the PC to stop sending. When the buffer drains, it sends XON
+// to resume. The PC's terminal program must have XON/XOFF enabled.
+//
+// HIGH_WATER: Send XOFF when buffer reaches this level
+// LOW_WATER:  Send XON when buffer drops to this level
+//
+
+#define FLOWCONTROL_ENABLED 1
+#define FLOW_HIGH_WATER (SI_BUFFER_SIZE * 2 / 4)    // Send XOFF above this
+#define FLOW_LOW_WATER  (SI_BUFFER_SIZE / 4)        // Send XON below this
+
 
 #ifdef __cplusplus
 }

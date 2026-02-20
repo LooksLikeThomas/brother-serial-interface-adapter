@@ -16,9 +16,6 @@
 // Buffer Configuration
 // ==============================================
 
-#define DEBUG_BUFFER_SIZE 256
-#define DEBUG_FLUSH_CHUNK_SIZE 64
-
 static char debugBuffer[DEBUG_BUFFER_SIZE];
 static volatile uint16_t bufferHead = 0;  // Write position
 static volatile uint16_t bufferTail = 0;  // Read position
