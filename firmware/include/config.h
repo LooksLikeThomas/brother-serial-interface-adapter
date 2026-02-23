@@ -44,7 +44,7 @@ extern "C" {
 // ==============================================
 
 // Physical memory allocations
-#define SI_BUFFER_SIZE (1024 - (DEBUG_ENABLED * 512))
+#define SI_BUFFER_SIZE (512 - (DEBUG_ENABLED * 256))
 
 // Buffer size for SO (incoming from typewriter)
 #define SO_BUFFER_SIZE 16
@@ -56,7 +56,7 @@ extern "C" {
 // Set to 1 to enable heatshrink compression on the SI buffer.
 // Set to 0 to compile out all compression code entirely.
 //
-#define USE_COMPRESSION 1
+#define USE_COMPRESSION 0
 
 #if USE_COMPRESSION
 
