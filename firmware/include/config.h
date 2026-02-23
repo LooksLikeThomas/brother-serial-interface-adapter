@@ -138,6 +138,34 @@ static const bool AUTO_LINE_FEED = true;
 // true  = Standalone LF also returns carriage (Unix compatibility)
 static const bool AUTO_CARRIAGE_RETURN = true;
 
+// Modern Newline from Typewriter
+// Converts bare CR (0x0D) from the typewriter's Return key into LF (0x0A)
+// on the serial output. Most modern terminals treat LF (or CR+LF) as the
+// line-ending, and a bare CR would just overwrite the current line.
+//
+// false = Return key sends CR (0x0D) — original IF60 behaviour
+// true  = Return key sends LF (0x0A) — modern terminal compatibility
+static const bool RETURN_AS_LF = true;
+
+// ==============================================
+// Overstrike Character Substitution
+// ==============================================
+//
+// When the installed daisy wheel lacks certain ASCII characters
+// (common on national/local wheels), the interface can approximate
+// them by overstriking two characters: print the first glyph,
+// backspace (0x03), then print the second glyph.
+//
+// For example, '@' does not exist on a German KB1 wheel.
+// With overstrike enabled, serial '@' (0x40) produces:
+//   [0x61, 0x03, 0x4F]  — print 'a', backspace, print 'O'
+// which visually approximates '@' on paper.
+//
+// false = Send the wheel's native character at that position
+//         This is also the ISO-646 compatible mode
+// true  = Overstrike to approximate the missing ASCII glyph
+static const bool OVERSTRIKE_MISSING_ASCII = true;
+
 // Pre-fill Horizontal Tab Stops
 // Sets a tab stop every N columns on startup (column 1 + N, 1 + 2N, ...).
 // 0 = no pre-fill (manual setup only via future ESC+1/ESC+8 sequences).

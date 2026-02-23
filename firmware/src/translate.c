@@ -9,6 +9,7 @@
 //
 #include "translate.h"
 #include "protocol.h"
+#include "config.h"
 
 // ==============================================
 // Non-Translating Keys
@@ -68,7 +69,7 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
     // --- Control codes ---
     switch (serialByte) {
         case 0x07: return result1(0xF5);        // BEL
-        case 0x08: return result1(0x03);        // BS
+        case 0x08: return result1(0x04);        // BS
         case 0x0A: return result1(0x9F);        // LF
         // CR and CR+LF combining handled in protocol.c
         // DC1, DC3 handled in protocol.c
@@ -93,18 +94,23 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
 
         // --- KB3 letter/symbol remaps ---
         case 0x40: // @
-            if (keyboard == KEYBOARD_KB3) return result2(0x66, 0x00);
-            return kbSelect(keyboard, 0x23, 0x2D, 0);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result3(0x61, 0x03, 0x4F) : result1(0x23);  // a BS O for @
+            if (keyboard == KEYBOARD_KB2) return result1(0x2D);
+            return result2(0x66, 0x00);
         case 0x5B: // [
-            if (keyboard == KEYBOARD_KB1) return result1(0x22);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result1(0x49) : result1(0x22);  // I for [
             if (keyboard == KEYBOARD_KB2) return result1(0x7B);
             return result1(0x6A);
         case 0x5C: // backslash
-            if (keyboard == KEYBOARD_KB1) return result1(0x3A);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result3(0x26, 0x03, 0x21) : result1(0x3A);  // / BS ! for backslash
             if (keyboard == KEYBOARD_KB2) return result3(0x88, 0x58, 0x89);
             return result2(0x5C, 0x00);
         case 0x5D: // ]
-            if (keyboard == KEYBOARD_KB1) return result1(0x7B);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result1(0x49) : result1(0x7B);  // I for ]
             if (keyboard == KEYBOARD_KB2) return result1(0x3A);
             return result2(0x2F, 0x00);
         case 0x5E: // ^
@@ -124,7 +130,7 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
         case 0x23: // #
             if (keyboard == KEYBOARD_KB1) return result1(0x5C);
             if (keyboard == KEYBOARD_KB2) return result1(0x27);
-            return result2(0x76, 0x00);
+            if (keyboard == KEYBOARD_KB3) return result2(0x76, 0x00);
         case 0x24: // $
             return kbSelect(keyboard, 0x24, 0x24, 0x21);
         case 0x25: // %
@@ -161,7 +167,7 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
         case 0x3B: // ;
             if (keyboard == KEYBOARD_KB3) return result2(0x3B, 0x00);
             return result1(0x3C);
-        case 0x3C: // 
+        case 0x3C: // <
             if (keyboard == KEYBOARD_KB1) return result3(0x88, 0x58, 0x89);
             if (keyboard == KEYBOARD_KB2) return result1(0x22);
             return result3(0x88, 0x59, 0x89);
@@ -191,17 +197,23 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
             return result1(0x76);
 
         case 0x7B: // {
-            return kbSelect(keyboard, 0x27, 0x5C, 0x5B);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result3(0x2A, 0x03, 0x2F) : result1(0x27);  // ( BS - for {
+            if (keyboard == KEYBOARD_KB2) return result1(0x5C);
+            return result1(0x5B);
         case 0x7C: // |
-            if (keyboard == KEYBOARD_KB1) return result1(0x3B);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result1(0x49) : result1(0x3B);  // I for |
             if (keyboard == KEYBOARD_KB2) return result3(0x88, 0x56, 0x89);
             return result1(0x5D);
         case 0x7D: // }
-            if (keyboard == KEYBOARD_KB1) return result1(0x7C);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result3(0x28, 0x03, 0x2F) : result1(0x7C);  // ) BS - for }
             if (keyboard == KEYBOARD_KB2) return result3(0x88, 0x57, 0x89);
             return result1(0x26);
         case 0x7E: // ~
-            if (keyboard == KEYBOARD_KB1) return result1(0x2D);
+            if (keyboard == KEYBOARD_KB1)
+                return OVERSTRIKE_MISSING_ASCII ? result1(0x2F) : result1(0x2D);  // - for ~
             if (keyboard == KEYBOARD_KB2) return result2(0x3D, 0x00);
             return result1(0x2A);
 
@@ -235,8 +247,9 @@ TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard) {
     switch (busByte) {
         case 0x00: return result1(0x20);            // Code+SP
         case 0x01: return result1(0x09);            // Code+TAB
-        case 0x02: return result1(0x0D);            // Code+CR
-        case 0x03: return result0();                // Code+BS (Swallowed)
+        case 0x02:                                  // Return -> CR or LF
+            return RETURN_AS_LF ? result1(0x0A) : result1(0x0D);
+        case 0x03: return result1(0x08);            // Code+BS
         case 0x04: return result1(0x7F);            // Code+DEL
         case 0x05: return result1(0x1B);            // Code+Esc
         case 0x0D: return result1(0x1E);            // Code+4 -> RS
@@ -256,7 +269,7 @@ TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard) {
             if (keyboard == KEYBOARD_KB2) return result2(0x1B, 0x5A); // ESC+Z
             break;
         case 0x39:                                  // Code+9
-            if (keyboard == KEYBOARD_KB1) return result1(0x3C); // < 
+            if (keyboard == KEYBOARD_KB1) return result1(0x3C); // <
             if (keyboard == KEYBOARD_KB2) return result1(0x5C); /* \ */
             break;
         case 0x8A: return result1(0x1C);            // Code+2 -> FS
@@ -282,6 +295,15 @@ TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard) {
 
 TranslateResult translateNormalBusToSerial(uint8_t busByte, uint8_t keyboard) {
     switch (busByte) {
+
+        // --- Special keys (keyboard-independent) ---
+        case 0x00: return result1(0x20);            // Space
+        case 0x01: return result1(0x09);            // TAB -> HT
+        case 0x02:                                  // Return -> CR or LF
+            return RETURN_AS_LF ? result1(0x0A) : result1(0x0D);
+        case 0x03: return result1(0x08);            // Backspace -> BS
+        case 0x04: return result1(0x08);            // DEL/Correct -> BS
+        case 0x05: return result1(0x1B);
 
         // --- Shifted number row ---
         case 0x20: // Shift+6
