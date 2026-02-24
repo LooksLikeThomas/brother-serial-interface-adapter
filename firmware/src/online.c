@@ -27,6 +27,7 @@
 #include "translate.h"
 #include "buffers.h"
 #include "config.h"
+#include "utf8.h"
 #include "debug.h"
 
 // ==============================================
@@ -338,6 +339,34 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
             DBG_EVENT("ESC: RESET PRINTER");
             break;
 
+        // ----- ANSI CSI Sequences -----
+        // All SGR formatting (bold, color, italics) is coalesced into Underline ON.
+        // Resets are coalesced into Underline OFF. Other CSIs are safely swallowed.
+        //
+        case ESC_CSI_SGR_SET:
+            if (COAL_SGR_TO_UNDERLINE){
+                bsbClear(&ps->bsb);
+                bsbAddByte(&ps->bsb, 0x8A); // Underline ON
+                ps->underlineEnabled = true;
+                DBG_EVENT("CSI: SGR FORMAT SET (UNDERLINE ON)");
+            }
+            break;
+
+        case ESC_CSI_SGR_RES:
+            if (COAL_SGR_TO_UNDERLINE){
+                bsbClear(&ps->bsb);
+                bsbAddByte(&ps->bsb, 0x8B); // Underline OFF
+                ps->underlineEnabled = false;
+                DBG_EVENT("CSI: SGR FORMAT RESET (UNDERLINE OFF)");
+            }
+            break;
+
+        case ESC_CSI:
+            // Completely valid sequence, but not formatting (e.g., cursor movement).
+            // Do nothing, the bytes have already been safely discarded from the buffer.
+            DBG_EVENT("CSI: SWALLOWED SEQUENCE");
+            break;
+
         // ----- Not Implemented -----
         // CX-only features (VMI, bold, shadow, double-strike,
         // sub/superscript, reverse LF, backward printing,
@@ -373,6 +402,35 @@ static ProtocolStatus handleEscAction(Protocol *ps, EscapeSeq seq, uint8_t param
 ProtocolStatus onlineHandleSI(Protocol *ps) {
 
     uint8_t si_byte = siBufferPeek();
+
+    // ----- UTF-8 / Multibyte Filter -----
+    if (!isPureAscii(si_byte)) {
+        uint8_t utfBuf[4];
+        uint8_t avail = siBufferPeekN(utfBuf, 4);
+        uint8_t utfLen = getUtf8Length(utfBuf, avail);
+
+        // Wait until the full multibyte sequence arrives
+        if (utfLen == 0 || avail < utfLen) {
+            return PS_STATUS_ONLINE;
+        }
+
+        TranslateResult res = flattenUtf8(utfBuf, utfLen);
+        siBufferDiscard(utfLen);
+
+        if (res.len > 0) {
+            bsbClear(&ps->bsb);
+            bsbAddResult(&ps->bsb, res);
+            
+            DBG_EVENT_HEX("SI: TRANSLATED UTF8 SEQ", utfLen);
+        } else {
+            DBG_EVENT_HEX("SI: DISCARDED UNMAPPED UTF8", utfLen);
+            bsbClear(&ps->bsb);
+            bsbAddByte(&ps->bsb, 0x5F); // Print ? for unknown utf-chars
+            ps->column++;
+        }
+        
+        return PS_STATUS_ONLINE;
+    }
 
     // ----- DC3: Signal DESELECT to protocol layer -----
     // The actual state transition is handled by protocol.c;
@@ -424,15 +482,29 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
     // there next time we're called.
     //
     if (si_byte == 0x1B) {
-        uint8_t peekBuf[3];
-        uint8_t avail = siBufferPeekN(peekBuf, 3);
+        uint8_t peekBuf[12];
+        uint8_t avail = siBufferPeekN(peekBuf, 12);
         EscapeSeq seq = escIdentify(peekBuf, avail);
 
         if (seq == ESC_NEED_MORE) {
             return PS_STATUS_ONLINE;
         }
 
-        uint8_t len = escConsumeLen(seq);
+        uint8_t len;
+        uint8_t param = 0;
+
+        // Calculate sequence length based on sequence type
+        if (seq >= ESC_CSI) {
+            len = escCsiConsumeLen(peekBuf, avail);
+        } else {
+            len = escConsumeLen(seq);
+            // Extract parameter for 3-byte legacy codes
+            if (len == 3 && seq != ESC_UNKNOWN) {
+                param = peekBuf[2];
+            }
+        }
+
+        // Discard consumed bytes before validating to prevent buffer stalls
         siBufferDiscard(len);
 
         if (seq == ESC_UNKNOWN) {
@@ -440,7 +512,6 @@ ProtocolStatus onlineHandleSI(Protocol *ps) {
             return PS_STATUS_ONLINE;
         }
 
-        uint8_t param = (len == 3) ? peekBuf[2] : 0;
         return handleEscAction(ps, seq, param);
     }
 
@@ -603,16 +674,6 @@ ProtocolStatus onlineHandleSO(Protocol *ps) {
     //
     if (isNonTranslatingKey(b)) return PS_STATUS_ONLINE;
 
-    // ----- Code+M: Newline -----
-    // Special case: Code+Return sends CR (+ LF if auto-LF
-    // is enabled) rather than the Ctrl+M control code.
-    //
-    if (ps->codePressed && b == 0x6D) {
-        soBufferPush(0x0D);
-        if (ps->autoLfEnabled) soBufferPush(0x0A);
-        return PS_STATUS_ONLINE;
-    }
-
     // ----- Translation Dispatch -----
     // Code path: letter & 0x1F for control codes, plus
     // keyboard-dependent Code+number row mappings.
@@ -621,7 +682,7 @@ ProtocolStatus onlineHandleSO(Protocol *ps) {
     //
     TranslateResult r;
     if (ps->codePressed) {
-        r = translateCodeBusToSerial(b, ps->keyboardID);
+        r = translateCodeBusToSerial(b, ps->keyboardID, ps->autoLfEnabled);
     } else {
         r = translateNormalBusToSerial(b, ps->keyboardID);
     }

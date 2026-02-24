@@ -237,7 +237,17 @@ TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard) {
 // Code+M (bus 0x6D) is intercepted by the protocol layer
 // before reaching this function (auto-LF handling).
 //
-TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard) {
+TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard, bool autoLfEnabled) {
+
+    // ----- Code+M: Newline -----
+    // Special case: Code+Return sends CR/CR+LF/LF depending 
+    // on config and state rather than the Ctrl+M control code.
+    //
+    if (busByte == 0x6D) {
+        if (RETURN_AS_LF) return result1(0x0A);
+        if (autoLfEnabled) return result2(0x0D, 0x0A);
+        return result1(0x0D);
+    }
 
     // Code+letter (0x61-0x7A): Ctrl convention
     if (busByte >= 0x61 && busByte <= 0x7A)

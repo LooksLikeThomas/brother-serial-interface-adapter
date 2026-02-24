@@ -84,7 +84,7 @@ TranslateResult translateNormalBusToSerial(uint8_t busByte, uint8_t keyboard);
 //   busByte  — the petal position or function byte from the bus
 //   keyboard — KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
 //
-TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard);
+TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard, bool autoLfEnabled);
 
 
 // ==============================================

@@ -44,7 +44,7 @@ extern "C" {
 // ==============================================
 
 // Physical memory allocations
-#define SI_BUFFER_SIZE (512 - (DEBUG_ENABLED * 256))
+#define SI_BUFFER_SIZE (1024 - (DEBUG_ENABLED * 256))
 
 // Buffer size for SO (incoming from typewriter)
 #define SO_BUFFER_SIZE 16
@@ -64,8 +64,8 @@ extern "C" {
 #define HS_WINDOW_SZ2 6
 #define HS_LOOKAHEAD_SZ2 4
 
-// Peek buffer: must be > your max peek-ahead (3 byte escape seq)
-#define PEEK_BUF_SIZE           8
+// Peek buffer: must be > your max peek-ahead (12 for CSI-SGR Sequences)
+#define PEEK_BUF_SIZE           12
 
 #endif // USE_COMPRESSION
 
@@ -78,6 +78,7 @@ extern "C" {
 #define MODE_BYTE 0xF9      // Terminal Mode (PC <-> Typewriter)
 
 // Automaticly Start Selecting typewriter when powered on
+// If disabled, 0x11 over serial is needed to start communication
 #define AUTO_SELECT 1
 
 // ASCII Wheel Selection
@@ -104,6 +105,25 @@ static const bool ASCII_WHEEL = true; // TODO: NOT IMPLEMENTED
 #define LINES_PER_PAGE  (PAPER_LENGTH * 6 / VMI - 4)
 
 // ==============================================
+// Character Set / Locale Configuration
+// ==============================================
+//
+// Defines the character set of the currently installed daisy wheel.
+// This is used by the UTF-8 transliteration engine to decide whether 
+// to map a character directly to an ISO-646 hardware equivalent 
+// or to approximate it using overstrike sequences.
+//
+typedef enum {
+    LOCALE_INTL_REF,  // International Reference Version (Standard US-ASCII)
+    LOCALE_GERMAN     // German DIN 66003 (Umlauts replace [ \ ] { | } ~)
+    // Add future locales here (e.g., LOCALE_FRENCH, LOCALE_UK)
+} IsoLocale;
+
+// Active System Locale
+// Set this to match the physical daisy wheel currently in the typewriter.
+static const IsoLocale SYSTEM_LOCALE = LOCALE_INTL_REF;
+
+// ==============================================
 // Printer Behavior Settings
 // ==============================================
 
@@ -123,7 +143,7 @@ static const bool DC_CONTROL = true; // TODO: NOT IMPLEMENTED
 // Automatic Line Feed
 // Adds an implicit Line Feed (LF) after every Carriage Return (CR).
 // Since most computers send both CR+LF for a new line, enabling this
-// causes two LFs to occur, resulting in double spacing.
+// wont causes two LFs to occur, second LF will be swallowed.
 //
 // false = Auto line feed off (Standard single spacing)
 // true  = Auto line feed on (Double spacing)
@@ -147,9 +167,17 @@ static const bool AUTO_CARRIAGE_RETURN = true;
 // true  = Return key sends LF (0x0A) — modern terminal compatibility
 static const bool RETURN_AS_LF = true;
 
-// ==============================================
+// ANSI Formatting Coalescing (SGR)
+//
+// Modern terminals send variable-length ANSI CSI SGR sequences to format text
+// This setting coalesces all incoming text formatting commands into Underline ON, 
+// and all format reset sequences into Underline OFF.
+//
+// false = Ignore modern ANSI formatting (All CSI-Sequences will be swallowed)
+// true  = Map all modern ANSI formatting to the typewriter's underline mechanism
+static const bool COAL_SGR_TO_UNDERLINE = true;
+
 // Overstrike Character Substitution
-// ==============================================
 //
 // When the installed daisy wheel lacks certain ASCII characters
 // (common on national/local wheels), the interface can approximate

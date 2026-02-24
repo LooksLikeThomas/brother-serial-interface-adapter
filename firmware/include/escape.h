@@ -70,6 +70,10 @@ typedef enum {
     ESC_SET_VMI,            // ESC RS n   Set VMI / line spacing (CX only)
     ESC_RESET_PRINTER,      // ESC CR P   Reset printer
 
+    // --- ANSI CSI Sequences ---
+    ESC_CSI,            // Valid CSI sequence, but not one we care about
+    ESC_CSI_SGR_SET,    // CSI sequence enabling formatting (Underline = 4)
+    ESC_CSI_SGR_RES,    // CSI sequence clearing formatting (Reset = 0 or 24)
 } EscapeSeq;
 
 // ==============================================
@@ -96,6 +100,20 @@ EscapeSeq escIdentify(const uint8_t *buf, uint8_t available);
 static inline uint8_t escConsumeLen(EscapeSeq seq) {
     return (seq >= ESC_ABS_HT) ? 3 : 2;
 }
+
+// ==============================================
+// ANSI CSI Sequence Parser
+// ==============================================
+//
+// Scans the provided buffer for a complete Control 
+// Sequence Introducer (ESC [ ...) and returns its 
+// total length in bytes.
+//
+// Returns:
+//   0       — not a CSI sequence, or sequence incomplete
+//   (other) — total length of the sequence in bytes
+//
+uint8_t escCsiConsumeLen(const uint8_t *buf, uint8_t available);
 
 #ifdef __cplusplus
 }

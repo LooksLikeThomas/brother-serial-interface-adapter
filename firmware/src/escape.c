@@ -9,6 +9,7 @@
 // the protocol layer — this module only identifies.
 //
 #include "escape.h"
+#include "config.h"
 
 #include <stdbool.h>
 
@@ -103,6 +104,52 @@ EscapeSeq escIdentify(const uint8_t *buf, uint8_t available) {
         case 0x1E:  return ESC_SET_VMI;
         case 0x1F:  return ESC_SET_PITCH;
 
+        // CSI (4 or more bytes)
+        case '[': {
+            uint8_t len = escCsiConsumeLen(buf, available);
+            uint8_t limit = 32;
+
+            #ifdef PEEK_BUF_SIZE 
+                limit = PEEK_BUF_SIZE;
+            #endif
+            
+            // Not enough bytes or buffer full
+            if (len == 0) {
+                if (available >= limit) return ESC_UNKNOWN; 
+                return ESC_NEED_MORE;
+            }
+
+            // Is it an SGR (Select Graphic Rendition) command?
+            if (buf[len - 1] == 'm') {
+                
+                // Check for exact Reset sequences: [m, [0m, or [24m
+                if (len == 3 || 
+                   (len == 4 && buf[2] == '0') || 
+                   (len == 5 && buf[2] == '2' && buf[3] == '4')) {
+                    return ESC_CSI_SGR_RES;
+                }
+                
+                // If it wasn't a reset, it's SOME kind of formatting (color, bold, etc.)
+                // Coalesce all of them into Underline ON.
+                return ESC_CSI_SGR_SET; 
+            }
+
+            // It's a valid CSI sequence, but not formatting (e.g., cursor movement)
+            return ESC_CSI; 
+        }
+
         default:    return ESC_UNKNOWN;
     }
+}
+
+uint8_t escCsiConsumeLen(const uint8_t *buf, uint8_t available) {
+    // Scan for the terminating character (0x40 to 0x7E)
+    for (uint8_t i = 2; i < available; i++) {
+        if (buf[i] >= 0x40 && buf[i] <= 0x7E) {
+            return i + 1; // Return the exact length of the complete sequence
+        }
+    }
+
+    // No terminator found yet
+    return 0; 
 }
