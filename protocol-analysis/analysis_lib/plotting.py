@@ -117,10 +117,16 @@ class DigitalPlot:
         y_positions = {}
         current_y = 0.0
 
+        GROUP_SEPARATORS = {3, 6}  # extra gap before KBACK (data→handshake) and D_SI_PATH (handshake→debug)
+        GROUP_SEPARATOR_SIZE = 0.25
+
         for ch in channel_order:
             # Add 0.4 padding BELOW channels 0 (SI) and 1 (SO)
             if ch in [0, 1]:
                 current_y += 0.4
+            # Add group separator gap before group boundaries
+            if ch in GROUP_SEPARATORS:
+                current_y += GROUP_SEPARATOR_SIZE
 
             y_positions[ch] = current_y
 
@@ -140,12 +146,8 @@ class DigitalPlot:
         # Configure axes limits
         max_y = current_y - (1.0 - signal_height)
         ax.set_ylim(-0.5, max_y + 0.5)
-        ax.set_xlim(t_start_val, t_view_max)
 
-        # Limit axis line
-        ax.spines["bottom"].set_bounds(t_start_val, t_end_val)
-
-        # Configure Ticks (Standard)
+        # Configure Ticks (Standard) — compute interval before xlim so we can extend left margin
         if time_unit == "ms":
             tick_interval = 0.1
         elif time_unit == "us":
@@ -155,7 +157,18 @@ class DigitalPlot:
         else:
             tick_interval = 0.1
 
-        ax.xaxis.set_major_locator(ticker.MultipleLocator(tick_interval))
+        # Extend xlim slightly left so the first tick label is not clipped at the edge
+        ax.set_xlim(t_start_val - tick_interval * 0.15, t_view_max)
+
+        # Limit axis line
+        ax.spines["bottom"].set_bounds(t_start_val, t_end_val)
+
+        import math
+        # Use tolerance to handle floating point: treat values within 1e-9 of a multiple as exact
+        first_tick = math.floor(t_start_val / tick_interval + 1e-9) * tick_interval
+        last_tick = math.floor(t_end_val / tick_interval) * tick_interval
+        ticks = np.arange(first_tick, last_tick + tick_interval * 0.5, tick_interval)
+        ax.xaxis.set_major_locator(FixedLocator(ticks))
 
         ax.tick_params(axis='x', direction='out', length=5, width=1,
                       colors=self.style.signal_color, labelsize=self.style.font_axis)
@@ -323,7 +336,9 @@ def plot_digital(
     figsize: tuple[float, float] = (12, 6),
     title: str = "Digital Capture",
     show: bool = True,
-    debounce_us: float = 2.0
+    debounce_us: float = 2.0,
+    style: Style = None,
+    clock_markers: tuple[int, int] = (2, 0),
 ) -> tuple[plt.Figure, plt.Axes]:
     if debounce_us > 0:
         # Calculate minimum samples required for a valid pulse
@@ -350,7 +365,7 @@ def plot_digital(
         # Use the filtered data for plotting
         channel_data = filtered_data
 
-    plot = DigitalPlot(time_data, channel_data, labels)
+    plot = DigitalPlot(time_data, channel_data, labels, style=style)
     if annotations:
         plot.add_annotations(annotations)
     return plot.render(
@@ -358,6 +373,7 @@ def plot_digital(
         time_unit=time_unit,
         title=title,
         figsize=figsize,
+        clock_markers=clock_markers,
         show=show,
     )
 
@@ -367,6 +383,9 @@ def plot_digital_normalized(
     channel_data: dict,
     channels: list[int] = None,
     normalization_source_channels: list[int] = None,
+    normalization_rising_only_channels: list[int] = None,
+    extra_warp_channels: list[int] = None,
+    extra_norm_times: list[float] = None,
     labels: list[str] = None,
     annotations: list = None,
     figsize: tuple[float, float] = (12, 6),
@@ -382,16 +401,19 @@ def plot_digital_normalized(
         channels = list(range(min(6, len(channel_data))))
 
     if normalization_source_channels is None:
-        normalization_source_channels = [2, 3, 4, 5]
+        normalization_source_channels = [2, 4, 5]
 
     valid_norm_channels = [ch for ch in normalization_source_channels if ch in channel_data]
+    if normalization_rising_only_channels is None:
+        normalization_rising_only_channels = []
+    valid_rising_only = [ch for ch in normalization_rising_only_channels if ch in channel_data]
 
     # Calculate Debounce Samples
     sample_interval = time_data[1] - time_data[0]
     sample_rate = 1 / sample_interval
     debounce_samples = max(1, int(debounce_us * 1e-6 * sample_rate))
 
-    # 1. Identify Valid Transitions
+    # 1. Identify Valid Transitions from normalization sources only (debounced)
     transition_indices = set()
     transition_indices.add(0)
     transition_indices.add(len(time_data) - 1)
@@ -407,22 +429,58 @@ def plot_digital_normalized(
             if np.all(data[t : t + debounce_samples] == new_level):
                 transition_indices.add(t)
 
-    warp_indices = np.sort(list(transition_indices))
-    warp_times = time_data[warp_indices]
+    # Rising-edge-only normalization channels (debounced)
+    for ch in valid_rising_only:
+        data = channel_data[ch]
+        raw_transitions = np.where((data[:-1] == 0) & (data[1:] == 1))[0] + 1
+        for t in raw_transitions:
+            if t + debounce_samples >= len(data):
+                continue
+            if np.all(data[t : t + debounce_samples] == 1):
+                transition_indices.add(t)
 
-    # 2. Create warped data
-    normalized_time = np.arange(len(warp_indices), dtype=float)
-    normalized_channels = {}
-    for ch, data in channel_data.items():
-        normalized_channels[ch] = data[warp_indices]
+    # Add manually specified normalization times (e.g. end of each byte transfer)
+    if extra_norm_times:
+        for t in extra_norm_times:
+            idx = int(np.searchsorted(time_data, t))
+            idx = min(idx, len(time_data) - 1)
+            transition_indices.add(idx)
 
-    # 3. Warp Annotations (REVERTED TO INTERP)
+    # Primary warp: only from normalization sources — defines the axis spacing
+    primary_indices = np.sort(list(transition_indices))
+    primary_times = time_data[primary_indices]
+    primary_norm = np.arange(len(primary_indices), dtype=float)
+
+    # 2. Build combined display set:
+    #    - Primary warp points at integer positions 0, 1, 2, ...
+    #    - Extra channel transitions inserted at interpolated fractional positions
+    combined_x = list(primary_norm)
+    combined_channels = {ch: list(data[primary_indices]) for ch, data in channel_data.items()}
+
+    if extra_warp_channels:
+        for ch in extra_warp_channels:
+            if ch not in channel_data:
+                continue
+            data_arr = channel_data[ch]
+            for t_idx in (np.where(np.diff(data_arr) != 0)[0] + 1):
+                t_time = time_data[t_idx]
+                if t_time <= primary_times[0] or t_time >= primary_times[-1]:
+                    continue
+                x = float(np.interp(t_time, primary_times, primary_norm))
+                combined_x.append(x)
+                for ch2, data2 in channel_data.items():
+                    combined_channels[ch2].append(data2[t_idx])
+
+    order = np.argsort(combined_x)
+    normalized_time = np.array(combined_x)[order]
+    normalized_channels = {ch: np.array(vals)[order] for ch, vals in combined_channels.items()}
+
+    # 3. Warp Annotations using primary mapping (integer positions = protocol events)
     warped_annotations = []
     if annotations:
         for ann in annotations:
-            # Linear interp maps absolute timestamps to new normalized axis
-            new_start = np.interp(ann.start, warp_times, normalized_time)
-            new_end = np.interp(ann.end, warp_times, normalized_time)
+            new_start = np.interp(ann.start, primary_times, primary_norm)
+            new_end = np.interp(ann.end, primary_times, primary_norm)
 
             new_ann = copy.copy(ann)
             new_ann.start = new_start
@@ -450,13 +508,16 @@ def plot_digital_normalized(
         show=False
     )
 
-    # 6. Custom Axis Ticks
-    ax.xaxis.set_major_locator(FixedLocator(normalized_time))
+    # 6. Custom Axis Ticks — only at primary warp positions (integer slots)
+    max_major_ticks = 30
+    stride = max(1, len(primary_norm) // max_major_ticks)
+    sparse_ticks = primary_norm[::stride]
+    ax.xaxis.set_major_locator(FixedLocator(sparse_ticks))
 
     def format_time_label(x, pos):
         idx = int(round(x))
-        if 0 <= idx < len(warp_times):
-            t_us = warp_times[idx] * 1e6
+        if 0 <= idx < len(primary_times):
+            t_us = primary_times[idx] * 1e6
             s = f"{t_us:.1f}"
             if s.endswith(".0"):
                 return s[:-2]
@@ -474,14 +535,14 @@ def plot_digital_normalized(
     step_10us = 10e-6
 
     grid_times = np.arange(t_min, t_max + step_10us, step_10us)
-    grid_x_coords = np.interp(grid_times, warp_times, normalized_time)
+    grid_x_coords = np.interp(grid_times, primary_times, primary_norm)
 
     ax.xaxis.set_minor_locator(FixedLocator(grid_x_coords))
     ax.tick_params(axis='x', which='minor', length=3, color='gray', direction='out')
 
     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
 
-    ax.set_xlabel("Time of Edge (µs)", fontsize=DEFAULT_STYLE.font_axis)
+    ax.set_xlabel("Time (µs)", fontsize=DEFAULT_STYLE.font_axis)
 
     if show:
         plt.show()
