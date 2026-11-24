@@ -70,7 +70,7 @@ static inline TranslateResult result4(uint8_t b0, uint8_t b1, uint8_t b2, uint8_
 //
 // Parameters:
 //   busByte  — the petal position or function byte from the bus
-//   keyboard — KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
+//   keyboard — KEYBOARD_KB0, KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
 //
 TranslateResult translateNormalBusToSerial(uint8_t busByte, uint8_t keyboard);
 
@@ -82,7 +82,7 @@ TranslateResult translateNormalBusToSerial(uint8_t busByte, uint8_t keyboard);
 //
 // Parameters:
 //   busByte  — the petal position or function byte from the bus
-//   keyboard — KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
+//   keyboard — KEYBOARD_KB0, KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
 //
 TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard, bool autoLfEnabled);
 
@@ -105,7 +105,7 @@ TranslateResult translateCodeBusToSerial(uint8_t busByte, uint8_t keyboard, bool
 //
 // Parameters:
 //   serialByte — the ASCII byte received from the PC
-//   keyboard   — KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
+//   keyboard   — KEYBOARD_KB0, KEYBOARD_KB1, KEYBOARD_KB2, or KEYBOARD_KB3
 //
 TranslateResult translateSerialToBus(uint8_t serialByte, uint8_t keyboard);
 

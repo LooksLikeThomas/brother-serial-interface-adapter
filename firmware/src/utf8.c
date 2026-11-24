@@ -32,6 +32,47 @@ TranslateResult flattenUtf8(const uint8_t *buf, uint8_t len) {
             }
         }
     }
+    if (SYSTEM_LOCALE == LOCALE_US) {
+        if (buf[0] == 0xC2) {
+            switch (buf[1]) {
+                case 0xA2: return result1(0x20); // ¢
+                case 0xA7: return result3(0x88, 0x5A, 0x89); // § -> Code+Z
+                case 0xB0: return result1(0x60); // ° -> '`' position
+                case 0xB1: return result1(0x5C); // ± -> '\' position
+                case 0xB2: return result3(0x88, 0x58, 0x89); // ² -> Code+X
+                case 0xB3: return result3(0x88, 0x56, 0x89); // ³ -> Code+V
+                case 0xB6: return result3(0x88, 0x59, 0x89); // ¶ -> Code+Y
+                case 0xBC: return result1(0x7B); // ¼ -> '{' position
+                case 0xBD: return result1(0x7C); // ½ -> '|' position
+
+                // £ (Pound): 'L' (0x4C) over '-' (0x2D)
+                case 0xA3: return result3(0x4C, 0x03, 0x2D); 
+                default: break; // Character not found in hardware, fall through to fallback
+                // ¥ (Yen): 'Y' (0x59) over '=' (0x3D) 
+                case 0xA5: return result3(0x59, 0x03, 0x3D); 
+            }
+        }        
+        else if (buf[0] == 0xC3) {
+            switch (buf[1]) {
+                case 0xBC: return result3(0x75, 0x03, 0x22); // ü (u + BS + ")
+                case 0xB6: return result3(0x6F, 0x03, 0x22); // ö (o + BS + ")
+                case 0xA4: return result3(0x61, 0x03, 0x22); // ä (a + BS + ")
+                case 0x9C: return result3(0x55, 0x03, 0x22); // Ü (U + BS + ")
+                case 0x96: return result3(0x4F, 0x03, 0x22); // Ö (O + BS + ")
+                case 0x84: return result3(0x41, 0x03, 0x22); // Ä (A + BS + ")
+                // å / Å (A ring): Flatten to ° + BS + a/A
+                case 0xA5: return result3(0x61, 0x03, 0x60); // å -> a + BS + °
+                case 0x85: return result3(0x41, 0x03, 0x60); // Å -> A + BS + °
+                case 0x98: return result3(0x4F, 0x03, 0x2F); // Ø (O stroke): 'O' (0x4F) over '/' (0x2F)                
+                case 0xB8: return result3(0x6F, 0x03, 0x2F); // ø (o stroke): 'o' (0x6F) over '/' (0x2F)
+                // Ð (Eth uppercase): 'D' (0x44) over '-' (0x2D)
+                case 0x90: return result3(0x44, 0x03, 0x2D);                 
+                // ÷ (Division): '-' (0x2D) over ':' (0x3A)
+                case 0xB7: return result3(0x2D, 0x03, 0x3A); 
+                default: break; // Character not found in hardware, fall through to fallback
+            }
+        }
+    }
     // Future locales (e.g., LOCALE_FRENCH) can be added as else-if blocks here
 
     // ==============================================
@@ -92,8 +133,8 @@ TranslateResult flattenUtf8(const uint8_t *buf, uint8_t len) {
             // --- Standard Transliterations (Single Petal) ---
             case 0xA9: return result1(0x65);           // é -> e petal
             case 0xA8: return result1(0x65);           // è -> e petal
-            case 0xB1: return result1(0x6E);           // ñ -> n petal
-            case 0xA7: return result1(0x63);           // ç -> c petal
+            case 0xB1: return result1(0x6E);           // ñ -> n petal            
+            case 0xA7: return result3(0x63, 0x03, 0x2C);           // ç -> c + BS + ,
 
             default:
                 return result0();
