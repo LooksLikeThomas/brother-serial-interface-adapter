@@ -32,6 +32,7 @@ extern "C" {
 // Values match the keyboard ID byte returned by the
 // typewriter in the SELECT response (byte 3).
 //
+#define KEYBOARD_KB0  0x00  // USA/QWERTY layout
 #define KEYBOARD_KB1  0x04  // Local layout
 #define KEYBOARD_KB2  0x24  // International layout
 #define KEYBOARD_KB3  0x44  // Symbol layout

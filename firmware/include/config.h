@@ -74,6 +74,8 @@ extern "C" {
 // ==============================================
 
 // System Operation Mode
+// internally the typewriter sees this as local echo on (F8) / off (F9). 
+// in local echo on mode, the TW keyboard bytes jump directly to the printer. In local echo off, keyboard bytes go to outbound serial to PC
 // #define MODE_BYTE 0xF8   // Printer Mode  (PC --> Typewriter)
 #define MODE_BYTE 0xF9      // Terminal Mode (PC <-> Typewriter)
 
@@ -115,13 +117,14 @@ static const bool ASCII_WHEEL = true; // TODO: NOT IMPLEMENTED
 //
 typedef enum {
     LOCALE_INTL_REF,  // International Reference Version (Standard US-ASCII)
-    LOCALE_GERMAN     // German DIN 66003 (Umlauts replace [ \ ] { | } ~)
+    LOCALE_GERMAN,     // German DIN 66003 (Umlauts replace [ \ ] { | } ~)
+    LOCALE_US
     // Add future locales here (e.g., LOCALE_FRENCH, LOCALE_UK)
 } IsoLocale;
 
 // Active System Locale
 // Set this to match the physical daisy wheel currently in the typewriter.
-static const IsoLocale SYSTEM_LOCALE = LOCALE_INTL_REF;
+static const IsoLocale SYSTEM_LOCALE = LOCALE_US;
 
 // ==============================================
 // Printer Behavior Settings
@@ -166,6 +169,8 @@ static const bool AUTO_CARRIAGE_RETURN = true;
 // false = Return key sends CR (0x0D) — original IF60 behaviour
 // true  = Return key sends LF (0x0A) — modern terminal compatibility
 static const bool RETURN_AS_LF = true;
+
+static const bool BACKSPACE_AS_LEFT_ARROW = true;
 
 // ANSI Formatting Coalescing (SGR)
 //
@@ -236,7 +241,7 @@ static const uint8_t SERIAL_PARITY = 0;
 // Serial Baud Rate
 // Speed of the serial connection in bits per second.
 // Maximum supported rate: 115200
-static const uint32_t SERIAL_BAUD = 9600;
+static const uint32_t SERIAL_BAUD = 115200;
 
 // Software Flow Control (XON/XOFF)
 //

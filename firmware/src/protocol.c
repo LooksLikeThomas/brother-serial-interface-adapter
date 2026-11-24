@@ -302,8 +302,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 return PS_STATUS_OFFLINE;
             }
             
-            // Start Select after 3 seconds
-            if (AUTO_SELECT && now - ps->stateEnteredAt >= 3000000){
+            // Start Select after 0.5 seconds
+            if (AUTO_SELECT && now - ps->stateEnteredAt >= 500000){
                 DBG_EVENT("AUTOSELECT - START SELECT");
                 ps->selectState = SEL_QUEUE_MODE;
                 transitionTo(ps, PS_SELECT);
@@ -344,8 +344,8 @@ ProtocolStatus pollProtocol(Protocol *ps) {
         //
         // Sequence (AX20):
         //   1. Send 0xF9 (terminal mode)
-        //   2. Send 0xFD
-        //   3. Wait for 0x04 (EOT) from typewriter
+        //   2. Send 0xFD (Keyboard/region query)
+        //   3. Wait for keyboard region code from typewriter (00: US, 04: DE)
         //   4. Send 0xF4 (reset margins + newline)
         //   5. Send 0xB1 (pitch) ?
         //   6. Send 0xB1 (pitch again) ?
@@ -400,6 +400,10 @@ ProtocolStatus pollProtocol(Protocol *ps) {
                 case SEL_WAIT_KBBYTE:
                     if (status == TS_STATUS_SO_DONE) {
                         switch (ts->receivedByte){
+                            case KEYBOARD_KB0:
+                                ps->keyboardID = KEYBOARD_KB0;
+                                DBG_EVENT_HEX("SELECT: KBCONFIG USA (KB0)", KEYBOARD_KB0);
+                                break;
                             case KEYBOARD_KB1:
                                 ps->keyboardID = KEYBOARD_KB1;
                                 DBG_EVENT_HEX("SELECT: KBCONFIG LOCAL (KB1)", KEYBOARD_KB1);
